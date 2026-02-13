@@ -1,0 +1,454 @@
+{
+  "name": "Daily Intelligence System",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 7 * * *"
+            },
+            {
+              "field": "cronExpression",
+              "expression": "0 21 * * *"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [0, 0],
+      "id": "ff169f26-10d2-4fcb-8145-30058f0e6bc0",
+      "name": "Schedule Trigger"
+    },
+
+    {
+      "parameters": {
+        "jsCode": "// Route based on current hour (Africa/Tunis = UTC+1)\nconst now = new Date();\nconst hour = new Date(now.toLocaleString('en-US', { timeZone: 'Africa/Tunis' })).getHours();\n\nreturn [{ json: { hour, phase: hour < 15 ? 'morning' : 'evening' } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [220, 0],
+      "id": "a1b2c3d4-1111-4000-a000-000000000001",
+      "name": "Detect Phase"
+    },
+
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "route-phase-check",
+              "leftValue": "={{ $json.phase }}",
+              "rightValue": "morning",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [440, 0],
+      "id": "a1b2c3d4-2222-4000-a000-000000000002",
+      "name": "Morning or Evening?"
+    },
+
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH today_items AS (\n    SELECT id, title, type, target_time, duration_minutes, priority\n    FROM tracking_items\n    WHERE is_active = TRUE\n      AND frequency_days::TEXT LIKE '%' || EXTRACT(DOW FROM (NOW() AT TIME ZONE 'Africa/Tunis')::DATE)::INT::TEXT || '%'\n      AND (start_date IS NULL OR (NOW() AT TIME ZONE 'Africa/Tunis')::DATE >= start_date::DATE)\n      AND (end_date IS NULL OR (NOW() AT TIME ZONE 'Africa/Tunis')::DATE <= end_date::DATE)\n),\nyesterday_performance AS (\n    SELECT \n        COUNT(*) FILTER (WHERE ti.type = 'habit' AND dil.completed = TRUE) as habits_done,\n        COUNT(*) FILTER (WHERE ti.type = 'habit') as habits_total,\n        COUNT(*) FILTER (WHERE ti.type = 'task' AND dil.completed = TRUE) as tasks_done,\n        COUNT(*) FILTER (WHERE ti.type = 'task') as tasks_total,\n        ROUND(AVG(dil.rating) FILTER (WHERE dil.rating IS NOT NULL AND dil.rating > 0), 1) as avg_habit_rating\n    FROM daily_item_logs dil\n    JOIN tracking_items ti ON dil.item_id = ti.id\n    WHERE dil.log_date = (NOW() AT TIME ZONE 'Africa/Tunis')::DATE - 1\n),\nyesterday_metrics AS (\n    SELECT d.sleep_hours, s.final_score\n    FROM daily_logs d\n    LEFT JOIN daily_final_score s ON d.log_date = s.log_date\n    WHERE d.log_date = (NOW() AT TIME ZONE 'Africa/Tunis')::DATE - 1\n)\nSELECT \n    (SELECT COALESCE(json_agg(json_build_object('title', title, 'target_time', target_time, 'duration', duration_minutes, 'priority', priority) ORDER BY CASE priority WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'low' THEN 3 ELSE 4 END, target_time ASC NULLS LAST), '[]'::json) FROM today_items WHERE type = 'habit') as today_habits,\n    (SELECT COALESCE(json_agg(json_build_object('title', title, 'target_time', target_time, 'duration', duration_minutes, 'priority', priority) ORDER BY CASE priority WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'low' THEN 3 ELSE 4 END, target_time ASC NULLS LAST), '[]'::json) FROM today_items WHERE type = 'task') as today_tasks,\n    (SELECT COUNT(*) FROM today_items WHERE type = 'habit') as habit_count,\n    (SELECT COUNT(*) FROM today_items WHERE type = 'task') as task_count,\n    yp.habits_done as y_habits_done, yp.habits_total as y_habits_total,\n    yp.tasks_done as y_tasks_done, yp.tasks_total as y_tasks_total,\n    yp.avg_habit_rating as y_avg_rating,\n    ym.sleep_hours as y_sleep, ym.final_score as y_score\nFROM yesterday_performance yp\nLEFT JOIN yesterday_metrics ym ON TRUE;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [700, -200],
+      "id": "a1b2c3d4-3333-4000-a000-000000000003",
+      "name": "Morning: Fetch Agenda",
+      "credentials": {
+        "postgres": {
+          "id": "wDN7SJz9BN6qcTKr",
+          "name": "Postgres account"
+        }
+      }
+    },
+
+    {
+      "parameters": {
+        "jsCode": "// ═══════════════════════════════════════════\n// 🌅 MORNING BRIEFING FORMATTER\n// ═══════════════════════════════════════════\n\nconst data = items[0].json;\nconst habits = typeof data.today_habits === 'string' ? JSON.parse(data.today_habits) : (data.today_habits || []);\nconst tasks = typeof data.today_tasks === 'string' ? JSON.parse(data.today_tasks) : (data.today_tasks || []);\n\nconst dayName = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Africa/Tunis' });\n\n// Priority emoji mapping\nconst priorityIcon = (p) => ({ high: '🔴', medium: '🟡', low: '🔵', none: '⚪' }[p] || '⚪');\n\n// Format time\nconst fmtTime = (t) => t ? t.substring(0, 5) : '';\n\n// --- Yesterday Context ---\nlet yesterdayBlock = '';\nconst yHabits = parseInt(data.y_habits_total) || 0;\nconst yTasks = parseInt(data.y_tasks_total) || 0;\n\nif (yHabits > 0 || yTasks > 0) {\n    const hRate = yHabits > 0 ? Math.round((parseInt(data.y_habits_done) / yHabits) * 100) : 0;\n    const tRate = yTasks > 0 ? Math.round((parseInt(data.y_tasks_done) / yTasks) * 100) : 0;\n    const yScore = data.y_score ? Math.round(parseFloat(data.y_score)) : null;\n    const yRating = data.y_avg_rating ? parseFloat(data.y_avg_rating).toFixed(1) : null;\n    const ySleep = data.y_sleep ? parseFloat(data.y_sleep).toFixed(1) : null;\n\n    yesterdayBlock = `\\n📊 *Yesterday's Recap:*\\n`;\n    if (yScore) yesterdayBlock += `Score: ${yScore}/100 `;\n    if (ySleep) yesterdayBlock += `• Sleep: ${ySleep}h\\n`;\n    if (yHabits > 0) yesterdayBlock += `Habits: ${data.y_habits_done}/${yHabits} (${hRate}%)`;\n    if (yRating) yesterdayBlock += ` ⭐ ${yRating}`;\n    yesterdayBlock += '\\n';\n    if (yTasks > 0) yesterdayBlock += `Tasks: ${data.y_tasks_done}/${yTasks} (${tRate}%)\\n`;\n}\n\n// --- Format Habits ---\nlet habitsBlock = '';\nif (habits.length > 0) {\n    habitsBlock = `\\n✅ *Habits (${habits.length}):*\\n`;\n    habits.forEach((h, i) => {\n        const time = fmtTime(h.target_time);\n        const dur = h.duration > 0 ? `${h.duration}m` : '';\n        const meta = [time, dur].filter(Boolean).join(' • ');\n        habitsBlock += `  ${priorityIcon(h.priority)} ${h.title}`;\n        if (meta) habitsBlock += ` — ${meta}`;\n        habitsBlock += '\\n';\n    });\n}\n\n// --- Format Tasks ---\nlet tasksBlock = '';\nif (tasks.length > 0) {\n    tasksBlock = `\\n📋 *Tasks (${tasks.length}):*\\n`;\n    tasks.forEach((t, i) => {\n        const time = fmtTime(t.target_time);\n        const dur = t.duration > 0 ? `${t.duration}m` : '';\n        const meta = [time, dur].filter(Boolean).join(' • ');\n        tasksBlock += `  ${priorityIcon(t.priority)} ${t.title}`;\n        if (meta) tasksBlock += ` — ${meta}`;\n        tasksBlock += '\\n';\n    });\n}\n\n// --- Total Focus Estimate ---\nconst totalMinutes = [...habits, ...tasks].reduce((sum, i) => sum + (parseInt(i.duration) || 0), 0);\nconst focusEst = totalMinutes > 0 ? `\\n⏱ *Est. Focus Load:* ${Math.floor(totalMinutes / 60)}h ${totalMinutes % 60}m\\n` : '';\n\n// --- Assemble Message ---\nconst message = `🌅 *MORNING BRIEFING*\\n📅 ${dayName}\\n${yesterdayBlock}${habitsBlock}${tasksBlock}${focusEst}\\n🔗 Open Daily Log: http://localhost:3000/daily`;\n\nreturn [{ json: { message: message.trim() } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [940, -200],
+      "id": "a1b2c3d4-4444-4000-a000-000000000004",
+      "name": "Morning: Format Message"
+    },
+
+    {
+      "parameters": {
+        "chatId": "8460828725",
+        "text": "={{ $json.message }}",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1160, -200],
+      "id": "a1b2c3d4-5555-4000-a000-000000000005",
+      "name": "Morning: Send Telegram",
+      "credentials": {
+        "telegramApi": {
+          "id": "oupV5icgJ6RmQS6O",
+          "name": "Telegram account"
+        }
+      }
+    },
+
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT COUNT(*) as count \nFROM daily_logs \nWHERE log_date = (NOW() AT TIME ZONE 'Africa/Tunis')::DATE;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [700, 200],
+      "id": "ed497f55-dac5-4532-a03a-6f52f3589aab",
+      "name": "Evening: Check Log Exists",
+      "credentials": {
+        "postgres": {
+          "id": "wDN7SJz9BN6qcTKr",
+          "name": "Postgres account"
+        }
+      }
+    },
+
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "97056b66-078f-4560-9c98-81ff07eeeaa0",
+              "leftValue": "={{ $json.count }}",
+              "rightValue": "0",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [920, 200],
+      "id": "392a63ba-c096-4558-bc36-69e64c8a4ad4",
+      "name": "Evening: Log Exists?"
+    },
+
+    {
+      "parameters": {
+        "chatId": "8460828725",
+        "text": "⚠️ *You haven't logged today!*\n\n📝 Don't break the chain — log your day now:\n🔗 http://localhost:3000/daily\n\n_Consistency is the compound interest of self-improvement._",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1160, 100],
+      "id": "6c76be8f-9627-4f34-8969-1f8411ee123f",
+      "name": "Evening: Send Reminder",
+      "credentials": {
+        "telegramApi": {
+          "id": "oupV5icgJ6RmQS6O",
+          "name": "Telegram account"
+        }
+      }
+    },
+
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH base_data AS (\n    SELECT \n        d.log_date, d.sleep_hours, d.sleep_quality, d.food_quality,\n        d.focus_minutes, d.mood, d.activity_level,\n        d.habits_score, d.tasks_done,\n        s.final_score\n    FROM daily_logs d\n    LEFT JOIN daily_final_score s ON d.log_date = s.log_date\n    WHERE d.log_date <= (NOW() AT TIME ZONE 'Africa/Tunis')::DATE\n),\ntrends AS (\n    SELECT *,\n        LAG(sleep_hours) OVER (ORDER BY log_date) as sleep_yesterday,\n        LAG(focus_minutes) OVER (ORDER BY log_date) as focus_yesterday,\n        LAG(final_score) OVER (ORDER BY log_date) as score_yesterday,\n        LAG(mood) OVER (ORDER BY log_date) as mood_yesterday,\n        ROUND(AVG(sleep_hours) OVER (ORDER BY log_date ROWS BETWEEN 2 PRECEDING AND CURRENT ROW), 1) as sleep_3day_avg,\n        ROUND(AVG(focus_minutes) OVER (ORDER BY log_date ROWS BETWEEN 2 PRECEDING AND CURRENT ROW), 0) as focus_3day_avg,\n        ROUND(AVG(final_score) OVER (ORDER BY log_date ROWS BETWEEN 2 PRECEDING AND CURRENT ROW), 0) as score_3day_avg,\n        ROUND(AVG(mood) OVER (ORDER BY log_date ROWS BETWEEN 2 PRECEDING AND CURRENT ROW), 1) as mood_3day_avg,\n        ROUND(AVG(sleep_hours) OVER (ORDER BY log_date ROWS BETWEEN 6 PRECEDING AND CURRENT ROW), 1) as sleep_7day_avg,\n        ROUND(AVG(focus_minutes) OVER (ORDER BY log_date ROWS BETWEEN 6 PRECEDING AND CURRENT ROW), 0) as focus_7day_avg,\n        ROUND(AVG(final_score) OVER (ORDER BY log_date ROWS BETWEEN 6 PRECEDING AND CURRENT ROW), 0) as score_7day_avg,\n        ROUND(AVG(mood) OVER (ORDER BY log_date ROWS BETWEEN 6 PRECEDING AND CURRENT ROW), 1) as mood_7day_avg\n    FROM base_data\n),\ntoday_items AS (\n    SELECT ti.id, ti.title, ti.type, ti.priority, dil.completed, dil.rating\n    FROM daily_item_logs dil\n    JOIN tracking_items ti ON dil.item_id = ti.id\n    WHERE dil.log_date = (NOW() AT TIME ZONE 'Africa/Tunis')::DATE\n),\nitem_summary AS (\n    SELECT\n        COUNT(*) FILTER (WHERE type = 'habit' AND completed = TRUE) as habits_completed,\n        COUNT(*) FILTER (WHERE type = 'habit') as habits_total,\n        ROUND(AVG(rating) FILTER (WHERE type = 'habit' AND rating IS NOT NULL AND rating > 0), 1) as avg_habit_rating,\n        COUNT(*) FILTER (WHERE type = 'task' AND completed = TRUE) as tasks_completed,\n        COUNT(*) FILTER (WHERE type = 'task') as tasks_total,\n        COALESCE(json_agg(json_build_object('title', title, 'type', type, 'completed', completed, 'rating', rating, 'priority', priority)) FILTER (WHERE title IS NOT NULL), '[]'::json) as items_detail\n    FROM today_items\n),\n-- Per-habit 7-day history: completion rate and avg rating per habit\nhabit_history AS (\n    SELECT \n        ti.title as habit_title,\n        COUNT(*) as scheduled_days,\n        COUNT(*) FILTER (WHERE dil.completed = TRUE) as completed_days,\n        ROUND(AVG(dil.rating) FILTER (WHERE dil.rating IS NOT NULL AND dil.rating > 0), 1) as avg_rating_7d,\n        ROUND((COUNT(*) FILTER (WHERE dil.completed = TRUE))::NUMERIC / NULLIF(COUNT(*), 0) * 100, 0) as completion_pct\n    FROM daily_item_logs dil\n    JOIN tracking_items ti ON dil.item_id = ti.id\n    WHERE ti.type = 'habit'\n      AND dil.log_date >= (NOW() AT TIME ZONE 'Africa/Tunis')::DATE - 7\n      AND dil.log_date <= (NOW() AT TIME ZONE 'Africa/Tunis')::DATE\n    GROUP BY ti.title\n),\n-- Logging streak: consecutive days with a daily log\nlog_streak AS (\n    SELECT COUNT(*) as streak\n    FROM (\n        SELECT log_date,\n               log_date - ROW_NUMBER() OVER (ORDER BY log_date)::INT * INTERVAL '1 day' as grp\n        FROM daily_logs\n        WHERE log_date <= (NOW() AT TIME ZONE 'Africa/Tunis')::DATE\n        ORDER BY log_date DESC\n    ) sub\n    WHERE grp = (SELECT log_date - ROW_NUMBER() OVER (ORDER BY log_date)::INT * INTERVAL '1 day'\n                 FROM daily_logs\n                 WHERE log_date = (NOW() AT TIME ZONE 'Africa/Tunis')::DATE\n                 LIMIT 1)\n),\n-- Weekly comparison: this week vs last week habit completion\nweekly_habits AS (\n    SELECT \n        ROUND((COUNT(*) FILTER (WHERE dil.completed = TRUE AND dil.log_date >= (NOW() AT TIME ZONE 'Africa/Tunis')::DATE - 6))::NUMERIC\n            / NULLIF(COUNT(*) FILTER (WHERE dil.log_date >= (NOW() AT TIME ZONE 'Africa/Tunis')::DATE - 6), 0) * 100, 0) as this_week_pct,\n        ROUND((COUNT(*) FILTER (WHERE dil.completed = TRUE AND dil.log_date >= (NOW() AT TIME ZONE 'Africa/Tunis')::DATE - 13 AND dil.log_date < (NOW() AT TIME ZONE 'Africa/Tunis')::DATE - 6))::NUMERIC\n            / NULLIF(COUNT(*) FILTER (WHERE dil.log_date >= (NOW() AT TIME ZONE 'Africa/Tunis')::DATE - 13 AND dil.log_date < (NOW() AT TIME ZONE 'Africa/Tunis')::DATE - 6), 0) * 100, 0) as last_week_pct\n    FROM daily_item_logs dil\n    JOIN tracking_items ti ON dil.item_id = ti.id\n    WHERE ti.type = 'habit'\n)\nSELECT \n    t.log_date, t.sleep_hours, t.sleep_quality, t.food_quality,\n    t.focus_minutes, t.mood, t.activity_level, t.habits_score, t.tasks_done, t.final_score,\n    t.sleep_yesterday, t.focus_yesterday, t.score_yesterday, t.mood_yesterday,\n    t.sleep_3day_avg, t.focus_3day_avg, t.score_3day_avg, t.mood_3day_avg,\n    t.sleep_7day_avg, t.focus_7day_avg, t.score_7day_avg, t.mood_7day_avg,\n    i.habits_completed, i.habits_total, i.avg_habit_rating,\n    i.tasks_completed, i.tasks_total, i.items_detail,\n    (SELECT COALESCE(json_agg(json_build_object('habit', habit_title, 'done', completed_days, 'scheduled', scheduled_days, 'pct', completion_pct, 'avg_rating', avg_rating_7d)), '[]'::json) FROM habit_history) as habit_7d_history,\n    (SELECT streak FROM log_streak) as logging_streak,\n    wh.this_week_pct as habits_this_week_pct,\n    wh.last_week_pct as habits_last_week_pct\nFROM trends t, item_summary i, weekly_habits wh\nORDER BY t.log_date DESC\nLIMIT 1;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [1160, 320],
+      "id": "9709287e-5757-4045-92c9-2b97175e26d8",
+      "name": "Evening: Full Data Query",
+      "credentials": {
+        "postgres": {
+          "id": "wDN7SJz9BN6qcTKr",
+          "name": "Postgres account"
+        }
+      }
+    },
+
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{JSON.stringify($input.all())}}",
+        "options": {
+          "systemMessage": "You are Bassem's personal High-Performance Coach & Daily Analyst. You have deep access to his daily tracking data. Your job is to act like a smart personal assistant who truly KNOWS him — his habits, patterns, strengths, and weaknesses.\n\n═══════════════════════════════════════\nDATA YOU RECEIVE (JSON):\n═══════════════════════════════════════\n\n1. TODAY'S BIOMETRICS:\n   - sleep_hours, sleep_quality (1-5), food_quality (1-5)\n   - focus_minutes, mood (-2 to +2), activity_level (0-5)\n   - final_score (0-100 composite wellness score)\n\n\n2. TREND DATA:\n   - Yesterday's values: sleep_yesterday, focus_yesterday, score_yesterday, mood_yesterday\n   - 3-day rolling averages: sleep_3day_avg, focus_3day_avg, score_3day_avg, mood_3day_avg\n   - 7-day rolling averages: sleep_7day_avg, focus_7day_avg, score_7day_avg, mood_7day_avg\n\n3. HABITS & TASKS (today):\n   - habits_completed / habits_total, avg_habit_rating (1-5 stars)\n   - tasks_completed / tasks_total\n   - items_detail: JSON array with each item's title, type, completed, rating, priority\n\n4. HABIT HISTORY (7 days):\n   - habit_7d_history: per-habit breakdown with done/scheduled counts, completion %, avg rating\n\n5. PROGRESS METRICS:\n   - logging_streak: consecutive days logged\n   - habits_this_week_pct: habit completion % this week\n   - habits_last_week_pct: habit completion % last week\n\n═══════════════════════════════════════\nYOUR ANALYSIS (execute ALL sections):\n═══════════════════════════════════════\n\n📊 SECTION 1 — DAILY VERDICT\nClassify the day into one mode:\n  🔥 High Output — Score >= 80 AND Focus > 180m AND Habits >= 80%\n  🧠 Deep Focus — Focus > 240m regardless\n  🔋 Growth — Score > 70, improving trends\n  ⚓ Steady — Metrics stable (within ±10% of 7d avg)\n  🧯 Recovery — Score < 50 OR Sleep < 5h OR Mood <= -1\n\nThen give a one-line verdict summarizing the day.\n\n📋 SECTION 2 — MISSED ITEMS & WARNINGS\nList ALL habits and tasks from items_detail where completed = false.\nFor each missed item:\n  - Name it explicitly\n  - If priority is 'high', flag with ⚠️ WARNING\n  - If a habit appears in habit_7d_history with completion_pct < 50%, flag as \"DECLINING — only X% this week\"\n\nAlso check for these WARNING conditions:\n  ⚠️ Sleep < 6h for 3+ days (check 3day_avg)\n  ⚠️ Mood declining (mood < mood_7day_avg by > 0.5)\n  ⚠️ Score dropping (score < score_7day_avg by > 10)\n  ⚠️ Habits this week < last week (habits_this_week_pct < habits_last_week_pct)\n  ⚠️ Any habit with avg_rating_7d < 3.0 stars (going through motions)\n\n📈 SECTION 3 — PROGRESS & STREAKS\nReport:\n  - Logging streak: X days\n  - Habits this week: X% (↑/↓ vs last week X%)\n  - Best performing habit (highest completion_pct in habit_7d_history)\n  - Weakest habit (lowest completion_pct)\n  - Overall trend direction: improving / stable / declining\n\n💡 SECTION 4 — SMART TIPS\nGive 2-3 SPECIFIC, ACTIONABLE tips based on the data. Examples:\n  - If sleep < 7h: \"Try a 10pm digital curfew tonight. Your focus drops 20% after poor sleep.\"\n  - If habit rating < 3: \"You're completing [habit] but rating it low. Consider adjusting the difficulty or time.\"\n  - If focus > 240m but mood low: \"High focus + low mood = burnout risk. Add a 15-min walk between sessions.\"\n  - If tasks incomplete but habits done: \"Your discipline is strong but task planning needs work. Try time-blocking.\"\n  - Reference SPECIFIC numbers from the data. Never be generic.\n\n🎯 SECTION 5 — TOMORROW'S FOCUS\nBased on all the above, recommend ONE single priority for tomorrow.\nThis should be the most impactful micro-adjustment.\n\n═══════════════════════════════════════\nFORMAT RULES:\n═══════════════════════════════════════\n- Use Telegram Markdown (single * for bold, single _ for italic)\n- Use emoji liberally for visual scanning\n- Keep each section to 2-4 lines max\n- Reference SPECIFIC numbers (e.g., \"Focus dropped from 180m to 90m\")\n- If Score >= 85 AND Habits >= 80%: Lead with \"🏆 System Coherent. Protect the streak.\"\n- Trust the SQL averages — do NOT recalculate them\n- Be direct, no fluff. Coach energy, not therapist energy.\n\nData:\n{{ JSON.stringify($json) }}"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3,
+      "position": [1380, 420],
+      "id": "6e13ac17-7abb-4929-8f99-2ecede422fa7",
+      "name": "AI Coach Agent"
+    },
+
+    {
+      "parameters": {
+        "model": "google/gemini-2.0-flash-001",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenRouter",
+      "typeVersion": 1,
+      "position": [1200, 640],
+      "id": "a37fca0b-08cc-4e8f-90f9-1d8dd6610f10",
+      "name": "OpenRouter Chat Model",
+      "credentials": {
+        "openRouterApi": {
+          "id": "imrFi6wx0Cx3PldN",
+          "name": "OpenRouter account"
+        }
+      }
+    },
+
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [1620, 380],
+      "id": "0b3bc34a-00e8-4480-be74-51c215a9f9a4",
+      "name": "Merge Data + AI"
+    },
+
+    {
+      "parameters": {
+        "jsCode": "// ═══════════════════════════════════════════\n// 🌙 EVENING DAILY INTELLIGENCE REPORT\n// ═══════════════════════════════════════════\n\nconst today = items[0].json;\nconst val = (v) => parseFloat(v || 0);\nconst pct = (done, total) => total > 0 ? Math.round((done / total) * 100) : 0;\n\n// --- Core Metrics ---\nconst score = Math.round(val(today.final_score));\nconst sleep = val(today.sleep_hours);\nconst sleepQ = val(today.sleep_quality);\nconst food = val(today.food_quality);\nconst focus = val(today.focus_minutes);\nconst mood = val(today.mood);\nconst activity = val(today.activity_level);\n\n// --- Trends ---\nconst s7 = val(today.score_7day_avg);\nconst sl7 = val(today.sleep_7day_avg);\nconst f7 = val(today.focus_7day_avg);\nconst m7 = val(today.mood_7day_avg);\n\n// Trend arrows\nconst arrow = (current, avg) => {\n    const diff = current - avg;\n    if (Math.abs(diff) < 0.5) return '➡️';\n    return diff > 0 ? '📈' : '📉';\n};\n\n// --- Mode Classification ---\nlet mode = '⚓ Steady Mode';\nconst habitsRate = pct(val(today.habits_completed), val(today.habits_total));\n\nif (focus > 240 && score > 80) mode = '🔥 High Output Mode';\nelse if (focus > 180 && mood > 1) mode = '🧠 Deep Focus Mode';\nelse if (score > 75 && sleep > 7) mode = '🔋 Growth Mode';\nelse if (sleep < 5 || score < 50 || mood < -1) mode = '🧯 Recovery Mode';\n\n// --- Score Label ---\nlet scoreLabel = 'Alert';\nlet scoreEmoji = '🔴';\nif (score >= 85) { scoreLabel = 'Excellent'; scoreEmoji = '🟢'; }\nelse if (score >= 70) { scoreLabel = 'Good'; scoreEmoji = '🟡'; }\nelse if (score >= 55) { scoreLabel = 'Average'; scoreEmoji = '🟠'; }\nelse if (score >= 40) { scoreLabel = 'Unstable'; scoreEmoji = '🟠'; }\n\n// --- Habits & Tasks ---\nconst hDone = parseInt(today.habits_completed) || 0;\nconst hTotal = parseInt(today.habits_total) || 0;\nconst tDone = parseInt(today.tasks_completed) || 0;\nconst tTotal = parseInt(today.tasks_total) || 0;\nconst avgRating = today.avg_habit_rating ? parseFloat(today.avg_habit_rating).toFixed(1) : null;\n\n// Star visualization\nconst stars = (r) => {\n    const rating = parseFloat(r) || 0;\n    const full = Math.round(rating);\n    return '★'.repeat(full) + '☆'.repeat(5 - full);\n};\n\n// Item details\nlet itemsDetail = [];\ntry {\n    itemsDetail = typeof today.items_detail === 'string' ? JSON.parse(today.items_detail) : (today.items_detail || []);\n} catch(e) { itemsDetail = []; }\n\n// --- Completed Items ---\nlet completedBlock = '';\nconst completed = itemsDetail.filter(i => i.completed);\nif (completed.length > 0) {\n    completedBlock = '\\n✅ *Completed:*\\n';\n    completed.forEach(c => {\n        const icon = c.type === 'habit' ? (c.rating ? stars(c.rating) : '✓') : '☑️';\n        completedBlock += `  ${icon} ${c.title}\\n`;\n    });\n}\n\n// --- Missed Items ---\nlet missedBlock = '';\nconst missed = itemsDetail.filter(i => !i.completed);\nif (missed.length > 0) {\n    missedBlock = '\\n❌ *Missed:*\\n';\n    missed.forEach(m => {\n        const warn = m.priority === 'high' ? ' ⚠️' : '';\n        missedBlock += `  ○ ${m.title}${warn}\\n`;\n    });\n}\n\n// --- Habit History (7d) ---\nlet habitHistoryBlock = '';\nlet habitHistory = [];\ntry {\n    habitHistory = typeof today.habit_7d_history === 'string' ? JSON.parse(today.habit_7d_history) : (today.habit_7d_history || []);\n} catch(e) { habitHistory = []; }\n\nif (habitHistory.length > 0) {\n    habitHistoryBlock = '\\n📊 *Habit Streaks (7d):*\\n';\n    habitHistory.sort((a, b) => (b.pct || 0) - (a.pct || 0));\n    habitHistory.forEach(h => {\n        const bar = '█'.repeat(Math.round((h.pct || 0) / 20)) + '░'.repeat(5 - Math.round((h.pct || 0) / 20));\n        const ratingStr = h.avg_rating ? ` ⭐${h.avg_rating}` : '';\n        habitHistoryBlock += `  ${bar} ${h.pct || 0}% ${h.habit} (${h.done}/${h.scheduled})${ratingStr}\\n`;\n    });\n}\n\n// --- Progress ---\nconst streak = parseInt(today.logging_streak) || 0;\nconst thisWeek = parseInt(today.habits_this_week_pct) || 0;\nconst lastWeek = parseInt(today.habits_last_week_pct) || 0;\nconst weekDiff = thisWeek - lastWeek;\nconst weekArrow = weekDiff > 0 ? '📈' : weekDiff < 0 ? '📉' : '➡️';\n\nlet progressBlock = '\\n🏆 *Progress:*\\n';\nprogressBlock += `  🔥 Logging Streak: ${streak} days\\n`;\nif (hTotal > 0) {\n    progressBlock += `  📅 Habits This Week: ${thisWeek}% ${weekArrow} (last: ${lastWeek}%)\\n`;\n}\n\n// --- AI Insight ---\nconst findAI = (item) => item ? (item.ai_analysis || item.output || item.text || item.response || item.answer || item.result) : '';\nconst aiText = findAI(today) || (items.length > 1 ? findAI(items[1].json) : '');\n\n// --- Day of week ---\nconst dayName = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Africa/Tunis' });\n\n// --- Assemble Report ---\nconst message = `🌙 *DAILY INTELLIGENCE REPORT*\n📅 ${dayName}\n\n${scoreEmoji} *Score: ${score}/100* — ${scoreLabel}\n🏷 *${mode}*\n\n━━━ Biometrics ━━━\n🌙 Sleep: ${sleep.toFixed(1)}h (Q: ${sleepQ}/5) ${arrow(sleep, sl7)}\n🎯 Focus: ${Math.round(focus)}m ${arrow(focus, f7)}\n😊 Mood: ${mood.toFixed(1)} ${arrow(mood, m7)}\n🏃 Activity: ${activity}\n🍎 Food: ${food}/5\n\n━━━ Discipline ━━━\n✅ Habits: ${hDone}/${hTotal} (${habitsRate}%) ${avgRating ? '⭐ ' + stars(avgRating) + ' ' + avgRating : ''}\n📋 Tasks: ${tDone}/${tTotal} (${pct(tDone, tTotal)}%)\n${completedBlock}${missedBlock}${habitHistoryBlock}${progressBlock}\n━━━ Trends (7d avg) ━━━\n📊 Score: ${s7} | Sleep: ${sl7}h | Focus: ${f7}m | Mood: ${m7}\n\n${aiText ? '━━━ 🤖 AI Coach ━━━\\n' + aiText : ''}`;\n\nreturn [{ json: { message: message.trim() } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1840, 380],
+      "id": "d334ce8c-a542-4347-8461-45cdd5a27127",
+      "name": "Evening: Format Report"
+    },
+
+    {
+      "parameters": {
+        "chatId": "8460828725",
+        "text": "={{ $json.message }}",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [2060, 380],
+      "id": "7dce9b34-7f72-464d-abfe-e4e6e64f02a0",
+      "name": "Evening: Send Report",
+      "credentials": {
+        "telegramApi": {
+          "id": "oupV5icgJ6RmQS6O",
+          "name": "Telegram account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Detect Phase",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Detect Phase": {
+      "main": [
+        [
+          {
+            "node": "Morning or Evening?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Morning or Evening?": {
+      "main": [
+        [
+          {
+            "node": "Morning: Fetch Agenda",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Evening: Check Log Exists",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Morning: Fetch Agenda": {
+      "main": [
+        [
+          {
+            "node": "Morning: Format Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Morning: Format Message": {
+      "main": [
+        [
+          {
+            "node": "Morning: Send Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Evening: Check Log Exists": {
+      "main": [
+        [
+          {
+            "node": "Evening: Log Exists?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Evening: Log Exists?": {
+      "main": [
+        [
+          {
+            "node": "Evening: Send Reminder",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Evening: Full Data Query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Evening: Full Data Query": {
+      "main": [
+        [
+          {
+            "node": "Merge Data + AI",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "AI Coach Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Coach Agent": {
+      "main": [
+        [
+          {
+            "node": "Merge Data + AI",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "OpenRouter Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Coach Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Data + AI": {
+      "main": [
+        [
+          {
+            "node": "Evening: Format Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Evening: Format Report": {
+      "main": [
+        [
+          {
+            "node": "Evening: Send Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "timeSavedMode": "fixed",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

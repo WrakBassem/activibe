@@ -107,9 +107,14 @@ export default function Dashboard() {
       {/* Header */}
       <header className="dashboard-header">
         <h1 className="dashboard-title">Personal Operating System</h1>
-        <Link href="/daily" className="log-button">
-          + Log Today
-        </Link>
+        <div style={{ display: "flex", gap: "0.5rem" }}>
+          <Link href="/coach" className="log-button" style={{ background: "#8b5cf6" }}>
+            🧠 AI Coach
+          </Link>
+          <Link href="/daily" className="log-button">
+            + Log Today
+          </Link>
+        </div>
       </header>
 
       {/* Stats Cards */}

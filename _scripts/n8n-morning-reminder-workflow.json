@@ -1,0 +1,118 @@
+{
+  "name": "Morning Habits & Tasks Reminder",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 7 * * *"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [0, 0],
+      "id": "a1b2c3d4-1111-1111-1111-000000000001",
+      "name": "Schedule Trigger (7 AM)"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT \n    id,\n    title,\n    type,\n    frequency_days,\n    target_time,\n    duration_minutes,\n    priority,\n    start_date,\n    end_date\nFROM tracking_items\nWHERE is_active = TRUE\n  AND frequency_days @> to_jsonb(EXTRACT(DOW FROM (NOW() AT TIME ZONE 'Africa/Tunis')::DATE)::INT)\n  AND (start_date IS NULL OR (NOW() AT TIME ZONE 'Africa/Tunis')::DATE >= start_date)\n  AND (end_date IS NULL OR (NOW() AT TIME ZONE 'Africa/Tunis')::DATE <= end_date)\nORDER BY \n    type ASC,\n    CASE priority\n        WHEN 'high' THEN 1\n        WHEN 'medium' THEN 2\n        WHEN 'low' THEN 3\n        ELSE 4\n    END,\n    target_time ASC NULLS LAST;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [280, 0],
+      "id": "a1b2c3d4-2222-2222-2222-000000000002",
+      "name": "Fetch Today's Items",
+      "credentials": {
+        "postgres": {
+          "id": "wDN7SJz9BN6qcTKr",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Morning Reminder Formatter\n// Input: items[] = rows from tracking_items (today's habits & tasks)\n\nconst allItems = items.map(i => i.json);\n\nconst habits = allItems.filter(i => i.type === 'habit');\nconst tasks = allItems.filter(i => i.type === 'task');\n\nconst today = new Date();\nconst dateStr = today.toLocaleDateString('en-GB', { \n  weekday: 'long', day: 'numeric', month: 'long' \n});\n\n// Priority emoji helper\nconst prioIcon = (p) => {\n  if (p === 'high') return '🔴';\n  if (p === 'medium') return '🟡';\n  if (p === 'low') return '🔵';\n  return '';\n};\n\n// Time formatter\nconst fmtTime = (t) => t ? ` (${t})` : '';\nconst fmtDuration = (m) => m > 0 ? ` ~${m}m` : '';\n\n// --- Build Habits Section ---\nlet habitsSection = '';\nif (habits.length > 0) {\n  habitsSection = `\\n✅ **Habits (${habits.length})**\\n`;\n  habits.forEach((h, i) => {\n    habitsSection += `  ${i + 1}. ${prioIcon(h.priority)} ${h.title}${fmtTime(h.target_time)}${fmtDuration(h.duration_minutes)}\\n`;\n  });\n} else {\n  habitsSection = '\\n✅ **Habits:** _None scheduled_\\n';\n}\n\n// --- Build Tasks Section ---\nlet tasksSection = '';\nif (tasks.length > 0) {\n  tasksSection = `\\n📋 **Tasks (${tasks.length})**\\n`;\n  tasks.forEach((t, i) => {\n    tasksSection += `  ${i + 1}. ${prioIcon(t.priority)} ${t.title}${fmtTime(t.target_time)}${fmtDuration(t.duration_minutes)}\\n`;\n  });\n} else {\n  tasksSection = '\\n📋 **Tasks:** _None scheduled_\\n';\n}\n\n// --- Calculate total focus time ---\nconst totalMinutes = allItems.reduce((sum, i) => sum + (i.duration_minutes || 0), 0);\nconst focusLine = totalMinutes > 0 ? `\\n⏱ **Planned Focus:** ~${totalMinutes}m` : '';\n\n// --- Assemble the message ---\nconst message = `☀️ **GOOD MORNING**\\n📅 _${dateStr}_\\n${habitsSection}${tasksSection}${focusLine}\\n\\n🔗 [Log your day](http://localhost:3000/daily)\\n💪 _Make it count!_`;\n\nreturn [{ json: { message } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [560, 0],
+      "id": "a1b2c3d4-3333-3333-3333-000000000003",
+      "name": "Format Reminder Message"
+    },
+    {
+      "parameters": {
+        "chatId": "8460828725",
+        "text": "={{ $json.message }}",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [840, 0],
+      "id": "a1b2c3d4-4444-4444-4444-000000000004",
+      "name": "Send Telegram Reminder",
+      "webhookId": "a1b2c3d4-5555-5555-5555-000000000005",
+      "credentials": {
+        "telegramApi": {
+          "id": "oupV5icgJ6RmQS6O",
+          "name": "Telegram account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger (7 AM)": {
+      "main": [
+        [
+          {
+            "node": "Fetch Today's Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Today's Items": {
+      "main": [
+        [
+          {
+            "node": "Format Reminder Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Reminder Message": {
+      "main": [
+        [
+          {
+            "node": "Send Telegram Reminder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timeSavedMode": "fixed",
+    "callerPolicy": "workflowsFromSameOwner",
+    "timezone": "Africa/Tunis"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}
