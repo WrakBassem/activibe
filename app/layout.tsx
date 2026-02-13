@@ -13,9 +13,11 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Daily Log",
-  description: "Daily Log",
-
+  title: "Activibe",
+  description: "Activibe",
+  icons: {
+    icon: '/favicon.ico',
+  },
 };
 
 export default function RootLayout({
