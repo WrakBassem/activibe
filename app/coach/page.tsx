@@ -142,7 +142,8 @@ export default function CoachPage() {
     const goal = goals.find((g) => g.id === goalId);
     if (!goal) return;
 
-    const updatedMilestones = goal.milestones.map((m, i) =>
+    const currentMilestones = Array.isArray(goal.milestones) ? goal.milestones : [];
+    const updatedMilestones = currentMilestones.map((m, i) =>
       i === milestoneIndex ? { ...m, done: !m.done } : m
     );
 
@@ -281,8 +282,9 @@ export default function CoachPage() {
             </div>
           ) : (
             goals.map((goal) => {
-              const completedMilestones = goal.milestones?.filter((m) => m.done)?.length || 0;
-              const totalMilestones = goal.milestones?.length || 1;
+              const milestones = Array.isArray(goal.milestones) ? goal.milestones : [];
+              const completedMilestones = milestones.filter((m) => m.done).length;
+              const totalMilestones = milestones.length || 1;
               const progress = Math.round((completedMilestones / totalMilestones) * 100);
 
               return (
@@ -320,7 +322,7 @@ export default function CoachPage() {
 
                   {/* Milestones */}
                   <div className="milestones-list">
-                    {goal.milestones?.map((m, i) => (
+                    {milestones.map((m, i) => (
                       <div
                         key={i}
                         className={`milestone-item ${m.done ? "done" : ""}`}

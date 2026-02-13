@@ -24,7 +24,20 @@ export async function GET() {
           LEFT JOIN daily_item_logs dil ON ti.id = dil.item_id AND dil.log_date = CURRENT_DATE
           WHERE ti.goal_id = ${goal.id} AND ti.is_active = TRUE
         `
-        return { ...goal, linked_items: items }
+        const parsedItems = items.map((item: any) => ({
+          ...item,
+          frequency_days: typeof item.frequency_days === 'string' 
+            ? JSON.parse(item.frequency_days) 
+            : (item.frequency_days || [])
+        }))
+
+        return { 
+          ...goal, 
+          milestones: typeof goal.milestones === 'string'
+            ? JSON.parse(goal.milestones)
+            : (goal.milestones || []),
+          linked_items: parsedItems 
+        }
       })
     )
 
