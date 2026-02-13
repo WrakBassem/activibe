@@ -23,18 +23,7 @@ export async function GET(request: Request, { params }: RouteParams) {
         d.tasks_done,
         d.mood,
         d.created_at,
-        s.final_score,
-        s.sleep_duration_pts,
-        s.sleep_quality_pts,
-        s.food_pts,
-        s.activity_pts,
-        s.focus_pts,
-        s.habits_pts,
-        s.tasks_pts,
-        s.mood_pts,
-        s.fatigue_penalty,
-        s.imbalance_penalty,
-        s.discipline_bonus
+        s.final_score
       FROM daily_logs d
       LEFT JOIN daily_final_score s ON d.log_date = s.log_date
       WHERE d.log_date = ${date}
@@ -47,9 +36,19 @@ export async function GET(request: Request, { params }: RouteParams) {
       )
     }
 
+    // Fetch items separately
+    const items = await sql`
+      SELECT item_id, completed, rating 
+      FROM daily_item_logs 
+      WHERE log_date = ${date}
+    `
+
     return NextResponse.json({
       success: true,
-      data: logs[0]
+      data: {
+        ...logs[0],
+        items: items
+      }
     })
   } catch (error: any) {
     console.error('[GET /api/logs/date] Error:', error)

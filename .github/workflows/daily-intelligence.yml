@@ -1,0 +1,30 @@
+name: Daily Intelligence Cron
+
+on:
+  schedule:
+    # 7:00 AM Tunisia (UTC+1) = 6:00 UTC
+    - cron: '0 6 * * *'
+    # 9:00 PM Tunisia (UTC+1) = 20:00 UTC
+    - cron: '0 20 * * *'
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  trigger-cron:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Calculate Phase
+        id: phase
+        run: |
+          HOUR=$(date +%H)
+          if [ "$HOUR" -lt "12" ]; then
+            echo "PHASE=morning" >> $GITHUB_ENV
+          else
+            echo "PHASE=evening" >> $GITHUB_ENV
+          fi
+
+      - name: Call API
+        run: |
+          echo "Triggering $PHASE phase..."
+          curl -X GET "${{ secrets.APP_URL }}/api/cron/daily?phase=$PHASE" \
+          -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+          --fail

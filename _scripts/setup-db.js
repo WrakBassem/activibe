@@ -52,6 +52,55 @@ async function setupDatabase() {
     `;
     console.log("✅ Table 'daily_logs' created.");
 
+    // 1.5 Create tracking_items (Habits/Tasks Definitions)
+    console.log("Creating table 'tracking_items'...");
+    await sql`
+      CREATE TABLE IF NOT EXISTS tracking_items (
+        id SERIAL PRIMARY KEY,
+        title TEXT NOT NULL,
+        type TEXT CHECK (type IN ('habit', 'task')) NOT NULL,
+        frequency_days JSONB DEFAULT '[0,1,2,3,4,5,6]', -- Array of day indexes (0=Sun, 1=Mon...)
+        target_time TEXT, -- e.g. "08:00"
+        duration_minutes INT DEFAULT 0,
+        priority TEXT CHECK (priority IN ('none', 'low', 'medium', 'high')) DEFAULT 'none',
+        start_date DATE DEFAULT CURRENT_DATE,
+        end_date DATE,
+        is_active BOOLEAN DEFAULT TRUE,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+    `;
+    console.log("✅ Table 'tracking_items' created.");
+
+    // 1.6 Create daily_item_logs (Completions)
+    console.log("Creating table 'daily_item_logs'...");
+    await sql`
+      CREATE TABLE IF NOT EXISTS daily_item_logs (
+        id SERIAL PRIMARY KEY,
+        log_date DATE NOT NULL,
+        item_id INT REFERENCES tracking_items(id) ON DELETE CASCADE,
+        completed BOOLEAN DEFAULT FALSE,
+        rating INT CHECK (rating BETWEEN 1 AND 5), -- New: 1-5 Star Rating for Habits
+        completed_at TIMESTAMP WITH TIME ZONE,
+        UNIQUE(log_date, item_id)
+      );
+    `;
+    console.log("✅ Table 'daily_item_logs' created.");
+
+    // --- PHASE 5 MIGRATION (Safe Alter) ---
+    console.log("🔄 Checking for Phase 5 migrations...");
+    try {
+      await sql`ALTER TABLE tracking_items ADD COLUMN IF NOT EXISTS start_date DATE DEFAULT CURRENT_DATE`;
+      await sql`ALTER TABLE tracking_items ADD COLUMN IF NOT EXISTS end_date DATE`;
+      await sql`ALTER TABLE daily_item_logs ADD COLUMN IF NOT EXISTS rating INT CHECK (rating BETWEEN 1 AND 5)`;
+      console.log("✅ Phase 5 Migrations applied (columns added if missing).");
+    } catch (e) {
+      console.log("⚠️ Migration note: " + e.message);
+    }
+    // --------------------------------------
+
+    // 2. Create daily_scores view
+    // ... rest of script ...
+
     // 2. Create daily_scores view
     // Calculates raw points for each category based on the rules
     console.log("Creating view 'daily_scores'...");
