@@ -3,7 +3,7 @@
 
 async function testCron() {
   const BASE_URL = 'http://localhost:3000/api/cron/daily';
-  const CRON_SECRET = 'YOUR_SECURE_PASSWORD'; // Must match .env placeholder
+  const CRON_SECRET = 'Bassem1919@90600663'; // Matches .env
 
   console.log('--- Testing Morning Phase ---');
   try {

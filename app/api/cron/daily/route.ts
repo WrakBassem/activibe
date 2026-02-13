@@ -108,7 +108,7 @@ export async function GET(request: Request) {
         msg += `\n⏱ *Est. Focus Load:* ${Math.floor(totalMinutes / 60)}h ${totalMinutes % 60}m\n`
       }
 
-      msg += `\n🔗 Open Daily Log: ${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/daily`
+      msg += `\n🔗 Open Daily Log: ${process.env.NEXT_PUBLIC_APP_URL || 'https://activibe-silk.vercel.app'}/daily`
 
       await sendTelegramMessage(msg.trim())
       return NextResponse.json({ success: true, phase: 'morning', sent: true })
@@ -127,7 +127,7 @@ export async function GET(request: Request) {
       
       if (Number(checkRows[0].count) === 0) {
         // Send Reminder
-        const reminder = `⚠️ *You haven't logged today!*\n\n📝 Don't break the chain — log your day now:\n🔗 ${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/daily\n\n_Consistency is the compound interest of self-improvement._`
+        const reminder = `⚠️ *You haven't logged today!*\n\n📝 Don't break the chain — log your day now:\n🔗 ${process.env.NEXT_PUBLIC_APP_URL || 'https://activibe-silk.vercel.app'}/daily\n\n_Consistency is the compound interest of self-improvement._`
         await sendTelegramMessage(reminder)
         return NextResponse.json({ success: true, phase: 'evening', type: 'reminder' })
       }
