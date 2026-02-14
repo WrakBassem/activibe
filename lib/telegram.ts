@@ -1,10 +1,15 @@
-
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
+const DEFAULT_TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 
-export async function sendTelegramMessage(text: string) {
-  if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) {
+export async function sendTelegramMessage(text: string, chatId?: string | number) {
+  if (!TELEGRAM_BOT_TOKEN) {
     console.warn('⚠️ Telegram credentials not set in .env');
+    return;
+  }
+
+  const targetChatId = chatId || DEFAULT_TELEGRAM_CHAT_ID;
+  if (!targetChatId) {
+    console.warn('⚠️ No Telegram Chat ID provided');
     return;
   }
 
@@ -14,7 +19,7 @@ export async function sendTelegramMessage(text: string) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        chat_id: TELEGRAM_CHAT_ID,
+        chat_id: targetChatId,
         text: text,
         parse_mode: 'Markdown',
       }),
@@ -24,7 +29,7 @@ export async function sendTelegramMessage(text: string) {
     if (!data.ok) {
       console.error('❌ Telegram API Error:', data);
     } else {
-      console.log('✅ Telegram message sent.');
+      console.log(`✅ Telegram message sent to ${targetChatId}.`);
     }
   } catch (error) {
     console.error('❌ Failed to send Telegram message:', error);

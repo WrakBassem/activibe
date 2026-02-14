@@ -1,12 +1,19 @@
 import { NextResponse } from 'next/server'
 import sql from '@/lib/db'
+import { auth } from '@/auth'
 
 // GET /api/items - Fetch all active items
 export async function GET() {
   try {
+    const session = await auth()
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
     const items = await sql`
       SELECT * FROM tracking_items 
       WHERE is_active = TRUE 
+        AND user_id = ${session.user.id}
       ORDER BY 
         CASE WHEN priority = 'high' THEN 1 
              WHEN priority = 'medium' THEN 2 
@@ -32,6 +39,11 @@ export async function GET() {
 // POST /api/items - Create new item
 export async function POST(request: Request) {
   try {
+    const session = await auth()
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
     const body = await request.json()
     
     // Basic validation
@@ -52,7 +64,8 @@ export async function POST(request: Request) {
         priority,
         start_date,
         end_date,
-        is_active
+        is_active,
+        user_id
       ) VALUES (
         ${body.title}, 
         ${body.type}, 
@@ -62,7 +75,8 @@ export async function POST(request: Request) {
         ${body.priority || 'none'},
         ${body.start_date || null},
         ${body.end_date || null},
-        TRUE
+        TRUE,
+        ${session.user.id}
       )
       RETURNING *
     `

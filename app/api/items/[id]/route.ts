@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import sql from '@/lib/db'
+import { auth } from '@/auth'
 
 // DELETE /api/items/[id] - Deactivate an item
 export async function DELETE(
@@ -7,13 +8,19 @@ export async function DELETE(
   { params }: { params: { id: string } }
 ) {
   try {
-    const id = params.id
+    const session = await auth()
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const { id } = await params
     
     // Soft delete by setting is_active = FALSE
     const result = await sql`
       UPDATE tracking_items 
       SET is_active = FALSE 
       WHERE id = ${id}
+        AND user_id = ${session.user.id}
       RETURNING *
     `
 

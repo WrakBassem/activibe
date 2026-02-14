@@ -1,10 +1,20 @@
 import { NextResponse } from 'next/server'
 import sql from '@/lib/db'
+import { auth } from '@/auth'
 
 // GET /api/coach/profile — Fetch user profile
 export async function GET() {
   try {
-    const rows = await sql`SELECT * FROM user_profile LIMIT 1`
+    const session = await auth()
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const rows = await sql`
+      SELECT * FROM user_profile 
+      WHERE user_id = ${session.user.id} 
+      LIMIT 1
+    `
     
     return NextResponse.json({
       success: true,
@@ -22,10 +32,19 @@ export async function GET() {
 // POST /api/coach/profile — Save/update user profile
 export async function POST(request: Request) {
   try {
+    const session = await auth()
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
     const body = await request.json()
 
-    // Check if profile exists
-    const existing = await sql`SELECT id FROM user_profile LIMIT 1`
+    // Check if profile exists for this user
+    const existing = await sql`
+      SELECT id FROM user_profile 
+      WHERE user_id = ${session.user.id} 
+      LIMIT 1
+    `
 
     let result
     if (existing.length > 0) {
@@ -45,14 +64,23 @@ export async function POST(request: Request) {
     } else {
       // Create new profile
       result = await sql`
-        INSERT INTO user_profile (core_values, goals, keep, quit, life_areas, onboarding_complete)
+        INSERT INTO user_profile (
+          core_values, 
+          goals, 
+          keep, 
+          quit, 
+          life_areas, 
+          onboarding_complete,
+          user_id
+        )
         VALUES (
           ${JSON.stringify(body.values || [])}::jsonb,
           ${JSON.stringify(body.goals || [])}::jsonb,
           ${JSON.stringify(body.keep || [])}::jsonb,
           ${JSON.stringify(body.quit || [])}::jsonb,
           ${JSON.stringify(body.life_areas || {})}::jsonb,
-          ${body.onboarding_complete || false}
+          ${body.onboarding_complete || false},
+          ${session.user.id}
         )
         RETURNING *
       `

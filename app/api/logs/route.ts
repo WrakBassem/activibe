@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import sql from '@/lib/db'
+import { auth } from '@/auth'
 
 // Types for daily log
 interface DailyLogInput {
@@ -18,6 +19,11 @@ interface DailyLogInput {
 // GET /api/logs - Fetch all logs with scores
 export async function GET() {
   try {
+    const session = await auth()
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
     const logs = await sql`
       SELECT 
         d.id,
@@ -44,7 +50,8 @@ export async function GET() {
         s.imbalance_penalty,
         s.discipline_bonus
       FROM daily_logs d
-      LEFT JOIN daily_final_score s ON d.log_date = s.log_date
+      LEFT JOIN daily_final_score s ON d.log_date = s.log_date AND d.user_id = s.user_id
+      WHERE d.user_id = ${session.user.id}
       ORDER BY d.log_date DESC
     `
 
@@ -65,6 +72,11 @@ export async function GET() {
 // POST /api/logs - Create new daily log
 export async function POST(request: Request) {
   try {
+    const session = await auth()
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
     const body: DailyLogInput = await request.json()
 
     // Validate required field
@@ -81,7 +93,8 @@ export async function POST(request: Request) {
 
     if (body.items && Array.isArray(body.items)) {
       // 1. Fetch all items to check types
-      const allItems = await sql`SELECT id, type FROM tracking_items`;
+      // Optimally we should filter by user_id here too to prevent logging other user's items
+      const allItems = await sql`SELECT id, type FROM tracking_items WHERE user_id = ${session.user.id}`;
       const itemMap = new Map(allItems.map(i => [i.id, i.type]));
 
       // 2. Process completions
@@ -92,6 +105,8 @@ export async function POST(request: Request) {
       // We only count items that were sent (scheduled for today)
       // client should send all scheduled items with their completion status
       for (const item of body.items) {
+        if (!itemMap.has(item.item_id)) continue; // Skip if item doesn't belong to user
+
         const type = itemMap.get(item.item_id);
         if (type === 'habit') {
           totalHabits++;
@@ -115,20 +130,24 @@ export async function POST(request: Request) {
       // We do this inside a transaction or just after. 
       // For simplicity/speed in this setup, we'll do it in parallel.
       for (const item of body.items) {
+        if (!itemMap.has(item.item_id)) continue; // Double check
+
         await sql`
           INSERT INTO daily_item_logs (
             log_date, 
             item_id, 
             completed, 
             rating,
-            completed_at
+            completed_at,
+            user_id
           )
           VALUES (
             ${body.log_date}, 
             ${item.item_id}, 
             ${item.completed},
             ${item.rating ?? null},
-            ${item.completed ? new Date() : null}
+            ${item.completed ? new Date() : null},
+            ${session.user.id}
           )
           ON CONFLICT (log_date, item_id) 
           DO UPDATE SET 
@@ -157,7 +176,8 @@ export async function POST(request: Request) {
         focus_minutes,
         habits_score,
         tasks_done,
-        mood
+        mood,
+        user_id
       ) VALUES (
         ${body.log_date},
         ${body.sleep_hours ?? null},
@@ -167,7 +187,8 @@ export async function POST(request: Request) {
         ${body.focus_minutes ?? null},
         ${derivedHabitsScore ?? null},
         ${derivedTasksDone ?? null},
-        ${body.mood ?? null}
+        ${body.mood ?? null},
+        ${session.user.id}
       )
       ON CONFLICT (log_date) 
       DO UPDATE SET

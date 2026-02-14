@@ -1,11 +1,18 @@
 import { NextResponse } from 'next/server'
 import sql from '@/lib/db'
+import { auth } from '@/auth'
 
 // GET /api/coach/goals — Fetch all goals
 export async function GET() {
   try {
+    const session = await auth()
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
     const goals = await sql`
       SELECT * FROM coach_goals
+      WHERE user_id = ${session.user.id}
       ORDER BY 
         CASE status 
           WHEN 'active' THEN 1 
@@ -22,7 +29,9 @@ export async function GET() {
           SELECT ti.*, dil.completed, dil.rating
           FROM tracking_items ti
           LEFT JOIN daily_item_logs dil ON ti.id = dil.item_id AND dil.log_date = CURRENT_DATE
-          WHERE ti.goal_id = ${goal.id} AND ti.is_active = TRUE
+          WHERE ti.goal_id = ${goal.id} 
+            AND ti.is_active = TRUE
+            AND ti.user_id = ${session.user.id}
         `
         const parsedItems = items.map((item: any) => ({
           ...item,
@@ -57,6 +66,11 @@ export async function GET() {
 // POST /api/coach/goals — Create a new goal
 export async function POST(request: Request) {
   try {
+    const session = await auth()
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
     const body = await request.json()
 
     if (!body.title) {
@@ -67,14 +81,23 @@ export async function POST(request: Request) {
     }
 
     const newGoal = await sql`
-      INSERT INTO coach_goals (title, category, deadline, milestones, motivation_why, status)
+      INSERT INTO coach_goals (
+        title, 
+        category, 
+        deadline, 
+        milestones, 
+        motivation_why, 
+        status,
+        user_id
+      )
       VALUES (
         ${body.title},
         ${body.category || 'general'},
         ${body.deadline || null},
         ${JSON.stringify(body.milestones || [])}::jsonb,
         ${body.motivation_why || null},
-        'active'
+        'active',
+        ${session.user.id}
       )
       RETURNING *
     `
@@ -83,13 +106,21 @@ export async function POST(request: Request) {
     if (body.daily_tasks && Array.isArray(body.daily_tasks)) {
       for (const task of body.daily_tasks) {
         await sql`
-          INSERT INTO tracking_items (title, type, frequency_days, priority, goal_id)
+          INSERT INTO tracking_items (
+            title, 
+            type, 
+            frequency_days, 
+            priority, 
+            goal_id,
+            user_id
+          )
           VALUES (
             ${task.title},
             ${task.type || 'task'},
             ${JSON.stringify(task.frequency_days || [0,1,2,3,4,5,6])}::jsonb,
             ${task.priority || 'medium'},
-            ${newGoal[0].id}
+            ${newGoal[0].id},
+            ${session.user.id}
           )
         `
       }
@@ -111,6 +142,11 @@ export async function POST(request: Request) {
 // PATCH /api/coach/goals — Update a goal
 export async function PATCH(request: Request) {
   try {
+    const session = await auth()
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
     const body = await request.json()
 
     if (!body.id) {
@@ -128,7 +164,8 @@ export async function PATCH(request: Request) {
         milestones = COALESCE(${body.milestones ? JSON.stringify(body.milestones) : null}::jsonb, milestones),
         status = COALESCE(${body.status || null}, status),
         motivation_why = COALESCE(${body.motivation_why || null}, motivation_why)
-      WHERE id = ${body.id}
+      WHERE id = ${body.id} 
+        AND user_id = ${session.user.id}
       RETURNING *
     `
 
