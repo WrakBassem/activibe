@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import sql from '@/lib/db'
-import { auth } from '@/auth'
+import { getAuthUserId } from '@/lib/auth-utils'
 
 interface RouteParams {
   params: Promise<{ date: string }>
@@ -9,8 +9,8 @@ interface RouteParams {
 // GET /api/logs/[date] - Fetch single log by date
 export async function GET(request: Request, { params }: RouteParams) {
   try {
-    const session = await auth()
-    if (!session?.user?.id) {
+    const userId = await getAuthUserId()
+    if (!userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
@@ -33,7 +33,7 @@ export async function GET(request: Request, { params }: RouteParams) {
       FROM daily_logs d
       LEFT JOIN daily_final_score s ON d.log_date = s.log_date AND d.user_id = s.user_id
       WHERE d.log_date = ${date} 
-        AND d.user_id = ${session.user.id}
+        AND d.user_id = ${userId}
     `
 
     if (logs.length === 0) {
@@ -48,7 +48,7 @@ export async function GET(request: Request, { params }: RouteParams) {
       SELECT item_id, completed, rating 
       FROM daily_item_logs 
       WHERE log_date = ${date}
-        AND user_id = ${session.user.id}
+        AND user_id = ${userId}
     `
 
     return NextResponse.json({
@@ -70,8 +70,8 @@ export async function GET(request: Request, { params }: RouteParams) {
 // PUT /api/logs/[date] - Update existing log
 export async function PUT(request: Request, { params }: RouteParams) {
   try {
-    const session = await auth()
-    if (!session?.user?.id) {
+    const userId = await getAuthUserId()
+    if (!userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
@@ -109,7 +109,7 @@ export async function PUT(request: Request, { params }: RouteParams) {
         tasks_done = COALESCE(${body.tasks_done ?? null}, tasks_done),
         mood = COALESCE(${body.mood ?? null}, mood)
       WHERE log_date = ${date}
-        AND user_id = ${session.user.id}
+        AND user_id = ${userId}
       RETURNING *
     `
 
@@ -137,8 +137,8 @@ export async function PUT(request: Request, { params }: RouteParams) {
 // DELETE /api/logs/[date] - Delete a log
 export async function DELETE(request: Request, { params }: RouteParams) {
   try {
-    const session = await auth()
-    if (!session?.user?.id) {
+    const userId = await getAuthUserId()
+    if (!userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
@@ -147,7 +147,7 @@ export async function DELETE(request: Request, { params }: RouteParams) {
     const result = await sql`
       DELETE FROM daily_logs
       WHERE log_date = ${date}
-        AND user_id = ${session.user.id}
+        AND user_id = ${userId}
       RETURNING id, log_date
     `
 

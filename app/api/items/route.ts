@@ -1,19 +1,19 @@
 import { NextResponse } from 'next/server'
 import sql from '@/lib/db'
-import { auth } from '@/auth'
+import { getAuthUserId } from '@/lib/auth-utils'
 
 // GET /api/items - Fetch all active items
 export async function GET() {
   try {
-    const session = await auth()
-    if (!session?.user?.id) {
+    const userId = await getAuthUserId()
+    if (!userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
     const items = await sql`
       SELECT * FROM tracking_items 
       WHERE is_active = TRUE 
-        AND user_id = ${session.user.id}
+        AND user_id = ${userId}
       ORDER BY 
         CASE WHEN priority = 'high' THEN 1 
              WHEN priority = 'medium' THEN 2 
@@ -39,8 +39,8 @@ export async function GET() {
 // POST /api/items - Create new item
 export async function POST(request: Request) {
   try {
-    const session = await auth()
-    if (!session?.user?.id) {
+    const userId = await getAuthUserId()
+    if (!userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
@@ -76,7 +76,7 @@ export async function POST(request: Request) {
         ${body.start_date || null},
         ${body.end_date || null},
         TRUE,
-        ${session.user.id}
+        ${userId}
       )
       RETURNING *
     `

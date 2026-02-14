@@ -1,18 +1,18 @@
 import { NextResponse } from 'next/server'
 import sql from '@/lib/db'
-import { auth } from '@/auth'
+import { getAuthUserId } from '@/lib/auth-utils'
 
 // GET /api/coach/profile — Fetch user profile
 export async function GET() {
   try {
-    const session = await auth()
-    if (!session?.user?.id) {
+    const userId = await getAuthUserId()
+    if (!userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
     const rows = await sql`
       SELECT * FROM user_profile 
-      WHERE user_id = ${session.user.id} 
+      WHERE user_id = ${userId} 
       LIMIT 1
     `
     
@@ -32,8 +32,8 @@ export async function GET() {
 // POST /api/coach/profile — Save/update user profile
 export async function POST(request: Request) {
   try {
-    const session = await auth()
-    if (!session?.user?.id) {
+    const userId = await getAuthUserId()
+    if (!userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
@@ -42,7 +42,7 @@ export async function POST(request: Request) {
     // Check if profile exists for this user
     const existing = await sql`
       SELECT id FROM user_profile 
-      WHERE user_id = ${session.user.id} 
+      WHERE user_id = ${userId} 
       LIMIT 1
     `
 
@@ -80,7 +80,7 @@ export async function POST(request: Request) {
           ${JSON.stringify(body.quit || [])}::jsonb,
           ${JSON.stringify(body.life_areas || {})}::jsonb,
           ${body.onboarding_complete || false},
-          ${session.user.id}
+          ${userId}
         )
         RETURNING *
       `

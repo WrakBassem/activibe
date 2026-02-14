@@ -1,13 +1,13 @@
 import { NextResponse } from 'next/server'
 import sql from '@/lib/db'
 import { chatWithCoach, buildCoachSystemPrompt } from '@/lib/gemini'
-import { auth } from '@/auth'
+import { getAuthUserId } from '@/lib/auth-utils'
 
 // POST /api/coach — Chat with AI Coach
 export async function POST(request: Request) {
   try {
-    const session = await auth()
-    if (!session?.user?.id) {
+    const userId = await getAuthUserId()
+    if (!userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
@@ -24,7 +24,7 @@ export async function POST(request: Request) {
     // 1. Load user profile
     const profileRows = await sql`
       SELECT * FROM user_profile 
-      WHERE user_id = ${session.user.id} 
+      WHERE user_id = ${userId} 
       LIMIT 1
     `
     const profile = profileRows[0] || null
@@ -34,7 +34,7 @@ export async function POST(request: Request) {
       SELECT d.*, s.final_score
       FROM daily_logs d
       LEFT JOIN daily_final_score s ON d.log_date = s.log_date AND d.user_id = s.user_id
-        WHERE d.user_id = ${session.user.id}
+        WHERE d.user_id = ${userId}
       ORDER BY d.log_date DESC
       LIMIT 7
     `
@@ -43,7 +43,7 @@ export async function POST(request: Request) {
     const goals = await sql`
       SELECT * FROM coach_goals
       WHERE status = 'active'
-        AND user_id = ${session.user.id}
+        AND user_id = ${userId}
       ORDER BY created_at DESC
     `
 
@@ -57,7 +57,7 @@ export async function POST(request: Request) {
       const sessionRows = await sql`
         SELECT messages FROM coach_sessions 
         WHERE id = ${sessionId}
-          AND user_id = ${session.user.id}
+          AND user_id = ${userId}
       `
       if (sessionRows[0]) {
         const dbMessages = sessionRows[0].messages
@@ -91,7 +91,7 @@ export async function POST(request: Request) {
         UPDATE coach_sessions 
         SET messages = ${sql.json(sessionMessages)}
         WHERE id = ${sessionId}
-          AND user_id = ${session.user.id}
+          AND user_id = ${userId}
         RETURNING id
       `
       if (updateResult.length === 0) {
@@ -100,7 +100,7 @@ export async function POST(request: Request) {
         // Let's create new to be safe.
         const newSession = await sql`
             INSERT INTO coach_sessions (session_type, messages, user_id)
-            VALUES (${sessionType}, ${sql.json(sessionMessages)}, ${session.user.id})
+            VALUES (${sessionType}, ${sql.json(sessionMessages)}, ${userId})
             RETURNING id
         `
         savedSessionId = newSession[0].id
@@ -108,7 +108,7 @@ export async function POST(request: Request) {
     } else {
       const newSession = await sql`
         INSERT INTO coach_sessions (session_type, messages, user_id)
-        VALUES (${sessionType}, ${sql.json(sessionMessages)}, ${session.user.id})
+        VALUES (${sessionType}, ${sql.json(sessionMessages)}, ${userId})
         RETURNING id
       `
       savedSessionId = newSession[0].id
@@ -131,7 +131,7 @@ export async function POST(request: Request) {
               ${goal.deadline || null},
               ${sql.json(goal.milestones || [])},
               ${goal.motivation_why || null},
-              ${session.user.id}
+              ${userId}
             )
             RETURNING *
           `
@@ -148,7 +148,7 @@ export async function POST(request: Request) {
                   ${sql.json(task.frequency_days || [0,1,2,3,4,5,6])},
                   ${task.priority || 'medium'},
                   ${createdGoal.id},
-                  ${session.user.id}
+                  ${userId}
                 )
               `
             }

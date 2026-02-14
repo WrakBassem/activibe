@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import sql from '@/lib/db'
-import { auth } from '@/auth'
+import { getAuthUserId } from '@/lib/auth-utils'
 
 // Types for daily log
 interface DailyLogInput {
@@ -19,8 +19,8 @@ interface DailyLogInput {
 // GET /api/logs - Fetch all logs with scores
 export async function GET() {
   try {
-    const session = await auth()
-    if (!session?.user?.id) {
+    const userId = await getAuthUserId()
+    if (!userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
@@ -51,7 +51,7 @@ export async function GET() {
         s.discipline_bonus
       FROM daily_logs d
       LEFT JOIN daily_final_score s ON d.log_date = s.log_date AND d.user_id = s.user_id
-      WHERE d.user_id = ${session.user.id}
+      WHERE d.user_id = ${userId}
       ORDER BY d.log_date DESC
     `
 
@@ -72,8 +72,9 @@ export async function GET() {
 // POST /api/logs - Create new daily log
 export async function POST(request: Request) {
   try {
-    const session = await auth()
-    if (!session?.user?.id) {
+    const userId = await getAuthUserId()
+    console.log('[POST /api/logs] userId:', userId)
+    if (!userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
@@ -94,7 +95,7 @@ export async function POST(request: Request) {
     if (body.items && Array.isArray(body.items)) {
       // 1. Fetch all items to check types
       // Optimally we should filter by user_id here too to prevent logging other user's items
-      const allItems = await sql`SELECT id, type FROM tracking_items WHERE user_id = ${session.user.id}`;
+      const allItems = await sql`SELECT id, type FROM tracking_items WHERE user_id = ${userId}`;
       const itemMap = new Map(allItems.map(i => [i.id, i.type]));
 
       // 2. Process completions
@@ -147,7 +148,7 @@ export async function POST(request: Request) {
             ${item.completed},
             ${item.rating ?? null},
             ${item.completed ? new Date() : null},
-            ${session.user.id}
+            ${userId}
           )
           ON CONFLICT (log_date, item_id) 
           DO UPDATE SET 
@@ -188,7 +189,7 @@ export async function POST(request: Request) {
         ${derivedHabitsScore ?? null},
         ${derivedTasksDone ?? null},
         ${body.mood ?? null},
-        ${session.user.id}
+        ${userId}
       )
       ON CONFLICT (log_date, user_id) 
       DO UPDATE SET

@@ -1,18 +1,18 @@
 import { NextResponse } from 'next/server'
 import sql from '@/lib/db'
-import { auth } from '@/auth'
+import { getAuthUserId } from '@/lib/auth-utils'
 
 // GET /api/coach/goals — Fetch all goals
 export async function GET() {
   try {
-    const session = await auth()
-    if (!session?.user?.id) {
+    const userId = await getAuthUserId()
+    if (!userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
     const goals = await sql`
       SELECT * FROM coach_goals
-      WHERE user_id = ${session.user.id}
+      WHERE user_id = ${userId}
       ORDER BY 
         CASE status 
           WHEN 'active' THEN 1 
@@ -31,7 +31,7 @@ export async function GET() {
           LEFT JOIN daily_item_logs dil ON ti.id = dil.item_id AND dil.log_date = CURRENT_DATE
           WHERE ti.goal_id = ${goal.id} 
             AND ti.is_active = TRUE
-            AND ti.user_id = ${session.user.id}
+            AND ti.user_id = ${userId}
         `
         const parsedItems = items.map((item: any) => ({
           ...item,
@@ -66,8 +66,8 @@ export async function GET() {
 // POST /api/coach/goals — Create a new goal
 export async function POST(request: Request) {
   try {
-    const session = await auth()
-    if (!session?.user?.id) {
+    const userId = await getAuthUserId()
+    if (!userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
@@ -97,7 +97,7 @@ export async function POST(request: Request) {
         ${JSON.stringify(body.milestones || [])}::jsonb,
         ${body.motivation_why || null},
         'active',
-        ${session.user.id}
+        ${userId}
       )
       RETURNING *
     `
@@ -120,7 +120,7 @@ export async function POST(request: Request) {
             ${JSON.stringify(task.frequency_days || [0,1,2,3,4,5,6])}::jsonb,
             ${task.priority || 'medium'},
             ${newGoal[0].id},
-            ${session.user.id}
+            ${userId}
           )
         `
       }
@@ -142,8 +142,8 @@ export async function POST(request: Request) {
 // PATCH /api/coach/goals — Update a goal
 export async function PATCH(request: Request) {
   try {
-    const session = await auth()
-    if (!session?.user?.id) {
+    const userId = await getAuthUserId()
+    if (!userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
@@ -165,7 +165,7 @@ export async function PATCH(request: Request) {
         status = COALESCE(${body.status || null}, status),
         motivation_why = COALESCE(${body.motivation_why || null}, motivation_why)
       WHERE id = ${body.id} 
-        AND user_id = ${session.user.id}
+        AND user_id = ${userId}
       RETURNING *
     `
 
