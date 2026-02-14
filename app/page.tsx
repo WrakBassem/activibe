@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { UserAvatar } from "./components/user-avatar";
 
 interface DailyLog {
   id: number;
@@ -106,14 +107,17 @@ export default function Dashboard() {
     <div className="dashboard">
       {/* Header */}
       <header className="dashboard-header">
-        <h1 className="dashboard-title">Personal Operating System</h1>
-        <div style={{ display: "flex", gap: "0.5rem" }}>
+        <div>
+          <h1 className="dashboard-title">Personal Operating System</h1>
+        </div>
+        <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
           <Link href="/coach" className="log-button" style={{ background: "#8b5cf6" }}>
             🧠 AI Coach
           </Link>
           <Link href="/daily" className="log-button">
             + Log Today
           </Link>
+          <UserAvatar />
         </div>
       </header>
 
