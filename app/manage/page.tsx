@@ -61,7 +61,12 @@ export default function ManagePage() {
       const res = await fetch("/api/items");
       const data = await res.json();
       if (data.success) {
-        setItems(data.data);
+        setItems(data.data.map((item: any) => ({
+          ...item,
+          frequency_days: typeof item.frequency_days === 'string'
+            ? JSON.parse(item.frequency_days)
+            : (item.frequency_days || [])
+        })));
       }
     } catch (err) {
       console.error("Failed to fetch items", err);

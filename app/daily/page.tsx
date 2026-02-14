@@ -123,13 +123,19 @@ export default function DailyPage() {
       if (itemsData.success) {
         // Map of existing completions: item_id -> { completed, rating }
         const completionMap = new Map();
-        if (logData.success && logData.data.items) {
+        if (logData.success && logData.data?.items) {
           logData.data.items.forEach((i: any) => {
             completionMap.set(i.item_id, { completed: i.completed, rating: i.rating });
           });
         }
 
-        const validItems = itemsData.data.filter((i: TrackingItem) => {
+        const validItems = itemsData.data.map((i: any) => {
+          // Parse frequency_days — may come as JSON string from DB
+          const freq = typeof i.frequency_days === 'string' 
+            ? JSON.parse(i.frequency_days) 
+            : (i.frequency_days || []);
+          return { ...i, frequency_days: freq };
+        }).filter((i: TrackingItem) => {
           if (!i.is_active) return false;
           // Frequency Check
           if (!i.frequency_days.includes(dayIndex)) return false;

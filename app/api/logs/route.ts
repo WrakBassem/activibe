@@ -190,7 +190,7 @@ export async function POST(request: Request) {
         ${body.mood ?? null},
         ${session.user.id}
       )
-      ON CONFLICT (log_date) 
+      ON CONFLICT (log_date, user_id) 
       DO UPDATE SET
         sleep_hours = EXCLUDED.sleep_hours,
         sleep_quality = EXCLUDED.sleep_quality,
