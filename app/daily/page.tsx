@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import "./daily.css";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 
 // POS Metric configuration
 const METRICS = [
@@ -74,6 +74,7 @@ type TrackingItem = {
 
 export default function DailyPage() {
   const router = useRouter();
+  const pathname = usePathname();
   const [values, setValues] = useState<MetricValues>({
     sleep_hours: 7,
     sleep_quality: null,
@@ -105,7 +106,18 @@ export default function DailyPage() {
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [pathname]);
+
+  // Also refetch when tab becomes visible (e.g. user switches back from manage page)
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible' && !isSubmitted) {
+        fetchData();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
+  }, [isSubmitted]);
 
   const fetchData = async () => {
     try {
