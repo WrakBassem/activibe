@@ -89,6 +89,7 @@ export default function DailyPage() {
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
+  const [isEditing, setIsEditing] = useState(false); // New state to track edit mode
   const [error, setError] = useState<string | null>(null);
   const [score, setScore] = useState<number | null>(null);
 
@@ -178,10 +179,10 @@ export default function DailyPage() {
           mood: logData.data.mood,
         });
         
-        // If a score exists, show it, but don't block editing unless the user explicitly wants to "view" it.
-        // For now, we allow updates.
-        // But if we want to show the "Submitted" screen immediately if they already logged:
-        // if (logData.data.id) { ... }
+        // If a log exists (id is present), we are in editing mode
+         if (logData.data.id) {
+            setIsEditing(true);
+         }
       }
     } catch (err) {
       console.error("Failed to fetch data", err);
@@ -224,8 +225,9 @@ export default function DailyPage() {
     setError(null);
 
     try {
+      const method = isEditing ? "PUT" : "POST"; // Dynamic method
       const response = await fetch("/api/logs", {
-        method: "POST",
+        method: method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           log_date: todayStr,
@@ -288,13 +290,13 @@ export default function DailyPage() {
             <span className="score-value">{score}</span>
             <span className="score-label">{scoreInfo?.label}</span>
           </div>
-          <p className="confirmation-text">Entry saved — {formattedDate}</p>
+          <p className="confirmation-text">{isEditing ? "Entry updated" : "Entry saved"} — {formattedDate}</p>
           <button
             className="submit-button active"
             onClick={() => window.location.reload()}
             style={{ marginTop: "2rem", maxWidth: "200px" }}
           >
-            Log Another Day
+            {isEditing ? "Return to Daily Log" : "Log Another Day"}
           </button>
         </div>
       </div>
@@ -518,7 +520,7 @@ export default function DailyPage() {
         onClick={handleSubmit}
         disabled={!allAnswered || isSubmitting}
       >
-        {isSubmitting ? "Saving..." : "Submit Daily Log"}
+        {isSubmitting ? "Saving..." : (isEditing ? "Update Daily Log" : "Submit Daily Log")}
       </button>
     </div>
   );

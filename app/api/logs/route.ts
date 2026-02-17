@@ -88,6 +88,19 @@ export async function POST(request: Request) {
       )
     }
 
+    // Check if log already exists for this date
+    const existingLog = await sql`
+      SELECT id FROM daily_logs 
+      WHERE user_id = ${userId} AND log_date = ${body.log_date}
+    `
+
+    if (existingLog.length > 0) {
+      return NextResponse.json(
+        { error: 'A daily log already exists for this date. Please use PUT to update.' },
+        { status: 409 }
+      )
+    }
+
     // --- Dynamic Items Logic ---
     let derivedHabitsScore = body.habits_score;
     let derivedTasksDone = body.tasks_done;
@@ -191,30 +204,147 @@ export async function POST(request: Request) {
         ${body.mood ?? null},
         ${userId}
       )
-      ON CONFLICT (log_date, user_id) 
-      DO UPDATE SET
-        sleep_hours = EXCLUDED.sleep_hours,
-        sleep_quality = EXCLUDED.sleep_quality,
-        food_quality = EXCLUDED.food_quality,
-        activity_level = EXCLUDED.activity_level,
-        focus_minutes = EXCLUDED.focus_minutes,
-        habits_score = EXCLUDED.habits_score,
-        tasks_done = EXCLUDED.tasks_done,
-        mood = EXCLUDED.mood
       RETURNING *
     `
 
     return NextResponse.json({
       success: true,
-      message: 'Daily log saved',
+      message: 'Daily log created',
       data: result[0]
     }, { status: 201 })
 
   } catch (error: any) {
     console.error('[POST /api/logs] Error:', error)
     
+    // Check for unique constraint violation just in case
+    if (error.code === '23505') { // Postgres unique_violation code
+        return NextResponse.json(
+            { error: 'A daily log already exists for this date. Please use PUT to update.' },
+            { status: 409 }
+        )
+    }
+
     return NextResponse.json(
       { error: 'Failed to create log', details: error.message },
+      { status: 500 }
+    )
+  }
+}
+
+// PUT /api/logs - Update existing daily log
+export async function PUT(request: Request) {
+  try {
+    const userId = await getAuthUserId()
+    if (!userId) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const body: DailyLogInput = await request.json()
+
+    // Validate required field
+    if (!body.log_date) {
+      return NextResponse.json(
+        { error: 'log_date is required (format: YYYY-MM-DD)' },
+        { status: 400 }
+      )
+    }
+
+    // --- Dynamic Items Logic ---
+    let derivedHabitsScore = body.habits_score;
+    let derivedTasksDone = body.tasks_done;
+
+    if (body.items && Array.isArray(body.items)) {
+      const allItems = await sql`SELECT id, type FROM tracking_items WHERE user_id = ${userId}`;
+      const itemMap = new Map(allItems.map(i => [i.id, i.type]));
+
+      let completedHabits = 0;
+      let totalHabits = 0;
+      let completedTasks = 0;
+
+      for (const item of body.items) {
+        if (!itemMap.has(item.item_id)) continue; 
+
+        const type = itemMap.get(item.item_id);
+        if (type === 'habit') {
+          totalHabits++;
+          if (item.completed) completedHabits++;
+        } else if (type === 'task') {
+          if (item.completed) completedTasks++;
+        }
+      }
+
+      derivedHabitsScore = totalHabits > 0 
+        ? Math.round((completedHabits / totalHabits) * 5) 
+        : (body.habits_score ?? 0); 
+
+      derivedTasksDone = Math.min(completedTasks, 5);
+
+      for (const item of body.items) {
+        if (!itemMap.has(item.item_id)) continue; 
+
+        await sql`
+          INSERT INTO daily_item_logs (
+            log_date, 
+            item_id, 
+            completed, 
+            rating,
+            completed_at,
+            user_id
+          )
+          VALUES (
+            ${body.log_date}, 
+            ${item.item_id}, 
+            ${item.completed},
+            ${item.rating ?? null},
+            ${item.completed ? new Date() : null},
+            ${userId}
+          )
+          ON CONFLICT (log_date, item_id) 
+          DO UPDATE SET 
+            completed = ${item.completed}, 
+            rating = ${item.rating ?? null},
+            completed_at = ${item.completed ? new Date() : null}
+        `;
+      }
+    }
+
+    // Validate ranges
+    if (body.sleep_quality !== undefined && (body.sleep_quality < 1 || body.sleep_quality > 5)) {
+      return NextResponse.json({ error: 'sleep_quality must be 1-5' }, { status: 400 })
+    }
+
+    // Update existing record
+    const result = await sql`
+      UPDATE daily_logs SET
+        sleep_hours = ${body.sleep_hours ?? null},
+        sleep_quality = ${body.sleep_quality ?? null},
+        food_quality = ${body.food_quality ?? null},
+        activity_level = ${body.activity_level ?? null},
+        focus_minutes = ${body.focus_minutes ?? null},
+        habits_score = ${derivedHabitsScore ?? null},
+        tasks_done = ${derivedTasksDone ?? null},
+        mood = ${body.mood ?? null}
+      WHERE user_id = ${userId} AND log_date = ${body.log_date}
+      RETURNING *
+    `
+
+    if (result.length === 0) {
+        return NextResponse.json(
+            { error: 'No daily log found for this date. Use POST to create one.' },
+            { status: 404 }
+        )
+    }
+
+    return NextResponse.json({
+      success: true,
+      message: 'Daily log updated',
+      data: result[0]
+    }, { status: 200 })
+
+  } catch (error: any) {
+    console.error('[PUT /api/logs] Error:', error)
+    return NextResponse.json(
+      { error: 'Failed to update log', details: error.message },
       { status: 500 }
     )
   }
