@@ -101,6 +101,7 @@ function Modal({ title, onClose, children }: { title: string, onClose: () => voi
         }
         .modal-content {
           background: white; padding: 1.5rem; border-radius: 12px; width: 90%; max-width: 500px;
+          max-height: 90vh; overflow-y: auto;
           box-shadow: 0 10px 25px rgba(0,0,0,0.2);
         }
          @media (prefers-color-scheme: dark) {
@@ -129,6 +130,9 @@ export default function SettingsPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [modalType, setModalType] = useState<"Axis" | "Metric" | "Cycle" | null>(null);
   const [editingItem, setEditingItem] = useState<any>(null); // For edit mode
+
+  // Cycle Form State
+  const [cycleWeights, setCycleWeights] = useState<Record<string, number>>({});
 
   // Loading/Error
   const [loading, setLoading] = useState(true);
@@ -164,6 +168,12 @@ export default function SettingsPage() {
   const openCreateModal = (type: "Axis" | "Metric" | "Cycle") => {
       setModalType(type);
       setEditingItem(null);
+      // Reset weights for Cycle modal
+      if(type === 'Cycle' && axes.length > 0) {
+          const initialWeights: Record<string, number> = {};
+          axes.forEach(a => initialWeights[a.id] = 0);
+          setCycleWeights(initialWeights);
+      }
       setModalOpen(true);
   };
    
@@ -181,6 +191,15 @@ export default function SettingsPage() {
       if (modalType === "Axis") {
            data.active = true;
       }
+      if (modalType === 'Cycle') {
+            // Format weights for API
+            const weightsArray = Object.entries(cycleWeights).map(([axisId, weight]) => ({
+                axis_id: axisId,
+                weight_percentage: weight
+            }));
+            
+            data.weights = weightsArray;
+       }
 
       const endpoint = modalType === "Axis" ? "/api/axes" : modalType === "Metric" ? "/api/metrics" : "/api/cycles";
       
@@ -305,8 +324,7 @@ export default function SettingsPage() {
           <div className="tab-content">
              <div className="flex justify-between items-center mb-4">
                 <h2 className="text-lg font-semibold">Priority Cycles</h2>
-                {/* Cycles are complex, maybe simple list for now */}
-                <button className="create-btn" onClick={() => alert("Complex flow required for Cycles. Use Setup Script for now or implement full wizard.")}>+ New Cycle</button>
+                <button className="create-btn" onClick={() => openCreateModal("Cycle")}>+ New Cycle</button>
             </div>
             <div className="grid gap-4">
                 {cycles.map(cycle => (
@@ -352,6 +370,43 @@ export default function SettingsPage() {
                             </select>
                             <input name="max_points" type="number" placeholder="Max Points (e.g. 10)" required className="input" />
                             <input name="difficulty_level" type="number" min="1" max="5" placeholder="Difficulty (1-5)" required className="input" />
+                        </>
+                    )}
+                    {modalType === "Cycle" && (
+                        <>
+                            <input name="name" placeholder="Cycle Name (e.g. Exam Prep)" required className="input" />
+                            <div className="flex gap-2">
+                                <div className="flex-1">
+                                    <label className="text-xs text-gray-500 block mb-1">Start Date</label>
+                                    <input name="start_date" type="date" required className="input" />
+                                </div>
+                                <div className="flex-1">
+                                    <label className="text-xs text-gray-500 block mb-1">End Date</label>
+                                    <input name="end_date" type="date" required className="input" />
+                                </div>
+                            </div>
+                            
+                            <div className="weights-section mt-2">
+                                <h4 className="text-sm font-semibold mb-2">Axis Weights (%)</h4>
+                                <div className="grid gap-2">
+                                    {axes.filter(a => a.active).map(axis => (
+                                        <div key={axis.id} className="flex items-center justify-between bg-gray-50 p-2 rounded dark:bg-zinc-800">
+                                            <span className="text-sm">{axis.name}</span>
+                                            <input 
+                                                type="number" 
+                                                min="0" 
+                                                max="100" 
+                                                value={cycleWeights[axis.id] || 0}
+                                                onChange={(e) => setCycleWeights({...cycleWeights, [axis.id]: parseInt(e.target.value) || 0})}
+                                                className="w-20 p-1 border rounded text-right"
+                                            />
+                                        </div>
+                                    ))}
+                                </div>
+                                <div className="text-right mt-1 text-xs text-gray-500">
+                                    Total: {Object.values(cycleWeights).reduce((a, b) => a + b, 0)}%
+                                </div>
+                            </div>
                         </>
                     )}
                     <button type="submit" className="create-btn w-full mt-2">Save</button>
