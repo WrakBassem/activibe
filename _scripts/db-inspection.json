@@ -1,0 +1,79 @@
+--- daily_scores columns ---
+[
+  {
+    "column_name": "log_date",
+    "data_type": "date"
+  },
+  {
+    "column_name": "user_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "sleep_duration_pts",
+    "data_type": "integer"
+  },
+  {
+    "column_name": "sleep_quality_pts",
+    "data_type": "integer"
+  },
+  {
+    "column_name": "food_pts",
+    "data_type": "integer"
+  },
+  {
+    "column_name": "activity_pts",
+    "data_type": "integer"
+  },
+  {
+    "column_name": "focus_pts",
+    "data_type": "integer"
+  },
+  {
+    "column_name": "habits_pts",
+    "data_type": "numeric"
+  },
+  {
+    "column_name": "tasks_pts",
+    "data_type": "integer"
+  },
+  {
+    "column_name": "mood_pts",
+    "data_type": "numeric"
+  }
+]
+
+--- daily_entries columns ---
+[
+  {
+    "column_name": "id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "date",
+    "data_type": "date"
+  },
+  {
+    "column_name": "metric_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "completed",
+    "data_type": "boolean"
+  },
+  {
+    "column_name": "score_awarded",
+    "data_type": "integer"
+  },
+  {
+    "column_name": "time_spent_minutes",
+    "data_type": "integer"
+  },
+  {
+    "column_name": "user_id",
+    "data_type": "uuid"
+  },
+  {
+    "column_name": "created_at",
+    "data_type": "timestamp with time zone"
+  }
+]

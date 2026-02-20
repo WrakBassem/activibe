@@ -82,12 +82,18 @@ export async function PUT(request: Request) {
         )
       }
   
+      const updateData: any = {};
+      if (body.name !== undefined) updateData.name = body.name;
+      if (body.description !== undefined) updateData.description = body.description;
+      if (body.active !== undefined) updateData.active = body.active;
+
+      if (Object.keys(updateData).length === 0) {
+          return NextResponse.json({ error: 'No fields to update' }, { status: 400 });
+      }
+
       const updatedAxis = await sql`
         UPDATE axes 
-        SET 
-            name = ${body.name}, 
-            description = ${body.description}, 
-            active = ${body.active}
+        SET ${sql(updateData)}
         WHERE id = ${body.id}
         RETURNING *
       `

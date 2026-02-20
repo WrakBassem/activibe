@@ -267,8 +267,39 @@ export async function GET(request: Request) {
               continue
           }
 
-          // 3. AI Analysis
-          const aiAnalysis = await generateDailyAnalysis(reportData)
+          // 2b. Fetch sub-metric field values for today
+          const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Tunis' }) // YYYY-MM-DD
+          const subFieldRows = await sql`
+              SELECT 
+                  m.name as metric_name,
+                  mf.label as field_label,
+                  mf.name as field_name,
+                  mf.field_type,
+                  dfe.value_int,
+                  dfe.value_bool,
+                  dfe.value_text
+              FROM daily_field_entries dfe
+              JOIN metric_fields mf ON dfe.field_id = mf.id
+              JOIN metrics m ON dfe.metric_id = m.id
+              WHERE dfe.user_id = ${userId} AND dfe.date = ${todayStr}
+              ORDER BY m.name, mf.sort_order
+          `
+          // Group by metric name
+          const subFieldsByMetric: Record<string, any[]> = {}
+          for (const sf of subFieldRows) {
+              if (!subFieldsByMetric[sf.metric_name]) subFieldsByMetric[sf.metric_name] = []
+              subFieldsByMetric[sf.metric_name].push({
+                  field: sf.field_label || sf.field_name,
+                  type: sf.field_type,
+                  value: sf.field_type === 'boolean' ? sf.value_bool
+                      : sf.field_type === 'text' ? sf.value_text
+                      : sf.value_int
+              })
+          }
+
+          // 3. AI Analysis (with sub-metric data)
+          const aiData = { ...reportData, sub_metric_fields: subFieldsByMetric }
+          const aiAnalysis = await generateDailyAnalysis(aiData)
 
           // 4. Format Message
           const score = Math.round(Number(reportData.final_score) || 0)

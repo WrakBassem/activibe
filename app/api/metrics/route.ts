@@ -99,15 +99,21 @@ export async function PUT(request: Request) {
             return NextResponse.json({ error: 'ID is required' }, { status: 400 })
         }
 
+        const updateData: any = {};
+        if (body.axis_id !== undefined) updateData.axis_id = body.axis_id;
+        if (body.name !== undefined) updateData.name = body.name;
+        if (body.rule_description !== undefined) updateData.rule_description = body.rule_description;
+        if (body.max_points !== undefined) updateData.max_points = body.max_points;
+        if (body.difficulty_level !== undefined) updateData.difficulty_level = body.difficulty_level;
+        if (body.active !== undefined) updateData.active = body.active;
+
+        if (Object.keys(updateData).length === 0) {
+            return NextResponse.json({ error: 'No fields to update' }, { status: 400 });
+        }
+
         const updatedMetric = await sql`
             UPDATE metrics
-            SET
-                axis_id = COALESCE(${body.axis_id}, axis_id),
-                name = COALESCE(${body.name}, name),
-                rule_description = COALESCE(${body.rule_description}, rule_description),
-                max_points = COALESCE(${body.max_points}, max_points),
-                difficulty_level = COALESCE(${body.difficulty_level}, difficulty_level),
-                active = COALESCE(${body.active}, active)
+            SET ${sql(updateData)}
             WHERE id = ${body.id}
             RETURNING *
         `

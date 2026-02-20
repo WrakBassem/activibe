@@ -10,6 +10,7 @@ if (!connectionString) {
 // Supabase requires SSL
 const sql = postgres(connectionString, {
   ssl: 'require',
+  prepare: false, // Fix for Supabase Transaction Pooler (port 6543)
 })
 
 export default sql

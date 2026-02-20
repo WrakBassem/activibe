@@ -23,6 +23,16 @@ type Metric = {
   active: boolean;
 };
 
+type MetricField = {
+  id: string;
+  metric_id: string;
+  name: string;
+  label: string;
+  field_type: 'int' | 'boolean' | 'scale_0_5' | 'text';
+  active: boolean;
+  sort_order: number;
+};
+
 type Cycle = {
   id: string;
   name: string;
@@ -125,11 +135,19 @@ export default function SettingsPage() {
   const [axes, setAxes] = useState<Axis[]>([]);
   const [metrics, setMetrics] = useState<Metric[]>([]);
   const [cycles, setCycles] = useState<Cycle[]>([]);
+  const [metricFields, setMetricFields] = useState<Record<string, MetricField[]>>({});
+  const [expandedMetric, setExpandedMetric] = useState<string | null>(null);
   
   // Modal State
   const [modalOpen, setModalOpen] = useState(false);
   const [modalType, setModalType] = useState<"Axis" | "Metric" | "Cycle" | null>(null);
-  const [editingItem, setEditingItem] = useState<any>(null); // For edit mode
+  const [editingItem, setEditingItem] = useState<any>(null);
+
+  // Field Modal State
+  const [fieldModalOpen, setFieldModalOpen] = useState(false);
+  const [fieldModalMetricId, setFieldModalMetricId] = useState<string | null>(null);
+  const [editingField, setEditingField] = useState<MetricField | null>(null);
+  const [fieldForm, setFieldForm] = useState({ name: '', label: '', field_type: 'int' as MetricField['field_type'] });
 
   // Cycle Form State
   const [cycleWeights, setCycleWeights] = useState<Record<string, number>>({});
@@ -165,14 +183,95 @@ export default function SettingsPage() {
     fetchAll();
   }, []);
 
-  const openCreateModal = (type: "Axis" | "Metric" | "Cycle") => {
+  // Fetch fields for a specific metric (on demand)
+  const fetchFieldsForMetric = async (metricId: string) => {
+    try {
+      const res = await fetch(`/api/metrics/${metricId}/fields`);
+      const data = await res.json();
+      if (data.success) {
+        setMetricFields(prev => ({ ...prev, [metricId]: data.data }));
+      }
+    } catch (e) {
+      console.error('Failed to fetch fields', e);
+    }
+  };
+
+  const toggleExpandMetric = (metricId: string) => {
+    if (expandedMetric === metricId) {
+      setExpandedMetric(null);
+    } else {
+      setExpandedMetric(metricId);
+      if (!metricFields[metricId]) fetchFieldsForMetric(metricId);
+    }
+  };
+
+  const openFieldModal = (metricId: string, field?: MetricField) => {
+    setFieldModalMetricId(metricId);
+    setEditingField(field || null);
+    setFieldForm(field ? { name: field.name, label: field.label, field_type: field.field_type } : { name: '', label: '', field_type: 'int' });
+    setFieldModalOpen(true);
+  };
+
+  const handleSaveField = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!fieldModalMetricId) return;
+    const method = editingField ? 'PUT' : 'POST';
+    const body = editingField
+      ? { field_id: editingField.id, ...fieldForm }
+      : fieldForm;
+    const res = await fetch(`/api/metrics/${fieldModalMetricId}/fields`, {
+      method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    });
+    if (res.ok) {
+      setFieldModalOpen(false);
+      fetchFieldsForMetric(fieldModalMetricId);
+    } else {
+      const err = await res.json();
+      alert(`Error: ${err.error}`);
+    }
+  };
+
+  const handleToggleField = async (metricId: string, field: MetricField) => {
+    setMetricFields(prev => ({
+      ...prev,
+      [metricId]: (prev[metricId] || []).map(f => f.id === field.id ? { ...f, active: !f.active } : f)
+    }));
+    await fetch(`/api/metrics/${metricId}/fields`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ field_id: field.id, active: !field.active }),
+    });
+  };
+
+  const handleDeleteField = async (metricId: string, fieldId: string) => {
+    if (!confirm('Delete this field? Historical data will be lost.')) return;
+    const res = await fetch(`/api/metrics/${metricId}/fields?field_id=${fieldId}`, { method: 'DELETE' });
+    if (res.ok) fetchFieldsForMetric(metricId);
+  };
+
+  const FIELD_TYPE_LABELS: Record<MetricField['field_type'], string> = {
+    int: 'Integer (0+)',
+    boolean: 'Boolean (Yes/No)',
+    scale_0_5: 'Scale (0–5)',
+    text: 'Text',
+  };
+
+  const openModal = (type: "Axis" | "Metric" | "Cycle", item?: any) => {
       setModalType(type);
-      setEditingItem(null);
-      // Reset weights for Cycle modal
-      if(type === 'Cycle' && axes.length > 0) {
-          const initialWeights: Record<string, number> = {};
-          axes.forEach(a => initialWeights[a.id] = 0);
-          setCycleWeights(initialWeights);
+      setEditingItem(item || null);
+      
+      // Reset/Init weights for Cycle modal
+      if(type === 'Cycle') {
+          const newWeights: Record<string, number> = {};
+          // Initialize with 0 for all axes
+          axes.forEach(a => newWeights[a.id] = 0);
+          
+          if (item && item.weights) {
+              // Pre-fill from existing weights
+              item.weights.forEach((w: any) => {
+                  if(w.axis_id) newWeights[w.axis_id] = w.weight_percentage;
+              });
+          }
+          setCycleWeights(newWeights);
       }
       setModalOpen(true);
   };
@@ -186,10 +285,12 @@ export default function SettingsPage() {
       if (modalType === "Metric") {
            data.max_points = parseInt(data.max_points);
            data.difficulty_level = parseInt(data.difficulty_level);
-           data.active = true;
+           // Maintain active status if editing, else default to true
+           if (!editingItem) data.active = true;
       }
       if (modalType === "Axis") {
-           data.active = true;
+           // Maintain active status if editing, else default to true
+           if (!editingItem) data.active = true;
       }
       if (modalType === 'Cycle') {
             // Format weights for API
@@ -201,33 +302,39 @@ export default function SettingsPage() {
             data.weights = weightsArray;
        }
 
+      // If editing, include ID
+      if (editingItem) {
+          data.id = editingItem.id;
+      }
+
       const endpoint = modalType === "Axis" ? "/api/axes" : modalType === "Metric" ? "/api/metrics" : "/api/cycles";
-      
+      const method = editingItem ? "PUT" : "POST";
+
       try {
           const res = await fetch(endpoint, {
-              method: "POST", // Edit logic would use PUT and include ID
+              method: method,
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify(data),
           });
           if(res.ok) {
               setModalOpen(false);
               fetchAll(); // Refresh data
+          } else {
+              const err = await res.json();
+              alert(`Error: ${err.error || 'Failed to save'}`);
           }
       } catch(err) {
           console.error(err);
+          alert('An unexpected error occurred');
       }
   };
 
-  // --- Handlers (Stubs for now, implementing real logic next step) ---
+  // ... (Toggle handler remains) ...
   const handleToggleAxis = async (id: string, current: boolean) => {
       // Optimistic update
       setAxes(axes.map(a => a.id === id ? { ...a, active: !current } : a));
       
       try {
-          // Find axis to get other fields
-          const axis = axes.find(a => a.id === id);
-          if(!axis) return;
-
           await fetch("/api/axes", {
               method: "PUT",
               headers: { "Content-Type": "application/json" },
@@ -235,7 +342,7 @@ export default function SettingsPage() {
           });
       } catch (err) {
           console.error("Failed to toggle axis", err);
-          // Revert on error would go here
+          fetchAll(); // Revert on error
       }
   };
 
@@ -260,7 +367,7 @@ export default function SettingsPage() {
           <div className="tab-content">
             <div className="flex justify-between items-center mb-4">
                 <h2 className="text-lg font-semibold">Strategic Axes</h2>
-                <button className="create-btn" onClick={() => openCreateModal("Axis")}>+ New Axis</button>
+                <button className="create-btn" onClick={() => openModal("Axis")}>+ New Axis</button>
             </div>
             
             <div className="grid gap-4">
@@ -279,7 +386,7 @@ export default function SettingsPage() {
                                 />
                                 <span className="slider round"></span>
                             </label>
-                            <button className="edit-btn">Edit</button>
+                            <button className="edit-btn" onClick={() => openModal("Axis", axis)}>Edit</button>
                         </div>
                     </div>
                 ))}
@@ -291,26 +398,72 @@ export default function SettingsPage() {
           <div className="tab-content">
              <div className="flex justify-between items-center mb-4">
                 <h2 className="text-lg font-semibold">Performance Metrics</h2>
-                <button className="create-btn" onClick={() => openCreateModal("Metric")}>+ New Metric</button>
+                <button className="create-btn" onClick={() => openModal("Metric")}>+ New Metric</button>
             </div>
             <div className="grid gap-4">
-                {/* Group by Axis */}
                 {axes.map(axis => {
                     const axisMetrics = metrics.filter(m => m.axis_id === axis.id);
                     if(axisMetrics.length === 0) return null;
-                    
                     return (
                         <div key={axis.id} className="axis-group">
                             <h3 className="axis-title">{axis.name}</h3>
                             {axisMetrics.map(metric => (
-                                <div key={metric.id} className="item-card small">
-                                    <div className="item-info">
-                                        <span className="item-name">{metric.name}</span>
-                                        <span className="item-meta">Max: {metric.max_points}pts • Lvl {metric.difficulty_level}</span>
+                                <div key={metric.id} style={{ marginBottom: '8px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.08)', overflow: 'hidden' }}>
+                                  {/* Metric Row */}
+                                  <div className="item-card small" style={{ margin: 0, borderRadius: 0, border: 'none' }}>
+                                      <div className="item-info" style={{ flex: 1 }}>
+                                          <span className="item-name">{metric.name}</span>
+                                          <span className="item-meta">Max: {metric.max_points}pts • Lvl {metric.difficulty_level}</span>
+                                      </div>
+                                      <div className="item-actions">
+                                          <button
+                                            onClick={() => toggleExpandMetric(metric.id)}
+                                            style={{ background: 'rgba(99,102,241,0.15)', color: '#818cf8', border: 'none', borderRadius: '6px', padding: '4px 10px', cursor: 'pointer', fontSize: '12px' }}
+                                          >
+                                            {expandedMetric === metric.id ? '▲ Fields' : '▼ Fields'}
+                                            {metricFields[metric.id] ? ` (${metricFields[metric.id].length})` : ''}
+                                          </button>
+                                          <button className="edit-btn" onClick={() => openModal("Metric", metric)}>Edit</button>
+                                      </div>
+                                  </div>
+                                  {/* Fields Sub-Panel */}
+                                  {expandedMetric === metric.id && (
+                                    <div style={{ background: 'rgba(0,0,0,0.2)', padding: '12px 16px' }}>
+                                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                                        <span style={{ fontSize: '12px', color: '#9ca3af', fontWeight: 600 }}>SUB-FIELDS</span>
+                                        <button onClick={() => openFieldModal(metric.id)}
+                                          style={{ fontSize: '12px', background: 'rgba(99,102,241,0.3)', color: '#a5b4fc', border: 'none', borderRadius: '6px', padding: '4px 10px', cursor: 'pointer' }}
+                                        >+ Add Field</button>
+                                      </div>
+                                      {(metricFields[metric.id] || []).length === 0 ? (
+                                        <p style={{ fontSize: '12px', color: '#6b7280', textAlign: 'center', padding: '8px 0' }}>No fields yet. Click "+ Add Field" to start.</p>
+                                      ) : (
+                                        <div style={{ display: 'grid', gap: '6px' }}>
+                                          {(metricFields[metric.id] || []).map(field => (
+                                            <div key={field.id} style={{
+                                              display: 'flex', alignItems: 'center', gap: '8px',
+                                              background: 'rgba(255,255,255,0.04)', borderRadius: '8px', padding: '8px 12px',
+                                              opacity: field.active ? 1 : 0.45,
+                                            }}>
+                                              <div style={{ flex: 1 }}>
+                                                <span style={{ fontSize: '13px', fontWeight: 600, color: '#e5e7eb' }}>{field.label || field.name}</span>
+                                                <span style={{ fontSize: '11px', color: '#6b7280', marginLeft: '8px' }}>{FIELD_TYPE_LABELS[field.field_type]}</span>
+                                                <span style={{ fontSize: '10px', color: '#4b5563', marginLeft: '6px', fontFamily: 'monospace' }}>{field.name}</span>
+                                              </div>
+                                              <label title="Active/Inactive" style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', gap: '4px', fontSize: '11px', color: '#9ca3af' }}>
+                                                <input type="checkbox" checked={field.active} onChange={() => handleToggleField(metric.id, field)} style={{ cursor: 'pointer' }} />
+                                                {field.active ? 'Active' : 'Inactive'}
+                                              </label>
+                                              <button onClick={() => openFieldModal(metric.id, field)}
+                                                style={{ background: 'none', border: 'none', color: '#60a5fa', cursor: 'pointer', fontSize: '12px' }}>✏️</button>
+                                              <button onClick={() => handleDeleteField(metric.id, field.id)}
+                                                style={{ background: 'none', border: 'none', color: '#f87171', cursor: 'pointer', fontSize: '12px' }}>🗑️</button>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      )}
                                     </div>
-                                    <div className="item-actions">
-                                        <button className="edit-btn">Edit</button>
-                                    </div>
+                                  )}
                                 </div>
                             ))}
                         </div>
@@ -324,7 +477,7 @@ export default function SettingsPage() {
           <div className="tab-content">
              <div className="flex justify-between items-center mb-4">
                 <h2 className="text-lg font-semibold">Priority Cycles</h2>
-                <button className="create-btn" onClick={() => openCreateModal("Cycle")}>+ New Cycle</button>
+                <button className="create-btn" onClick={() => openModal("Cycle")}>+ New Cycle</button>
             </div>
             <div className="grid gap-4">
                 {cycles.map(cycle => (
@@ -335,14 +488,19 @@ export default function SettingsPage() {
                                 {new Date(cycle.start_date).toLocaleDateString()} - {new Date(cycle.end_date).toLocaleDateString()}
                             </span>
                         </div>
-                        <div className="weights-preview">
-                            <span className="text-xs text-gray-400">Weights:</span>
-                            <div className="flex gap-2 flex-wrap">
-                                {cycle.weights?.map(w => (
-                                    <span key={w.axis_id} className="weight-tag">
-                                        {w.axis_name || axes.find(a => a.id === w.axis_id)?.name || 'Axis'}: {w.weight_percentage}%
-                                    </span>
-                                ))}
+                        <div>
+                            <div className="weights-preview mb-2">
+                                <span className="text-xs text-gray-400 block mb-1">Weights:</span>
+                                <div className="flex gap-2 flex-wrap">
+                                    {cycle.weights?.map(w => (
+                                        <span key={w.axis_id} className="weight-tag">
+                                            {w.axis_name || axes.find(a => a.id === w.axis_id)?.name || 'Axis'}: {w.weight_percentage}%
+                                        </span>
+                                    ))}
+                                </div>
+                            </div>
+                            <div className="text-right">
+                                <button className="edit-btn" onClick={() => openModal("Cycle", cycle)}>Edit</button>
                             </div>
                         </div>
                     </div>
@@ -351,38 +509,92 @@ export default function SettingsPage() {
           </div>
         )}
 
+        {/* --- FIELD MODAL --- */}
+        {fieldModalOpen && (
+          <Modal title={editingField ? 'Edit Field' : 'Add Sub-Field'} onClose={() => setFieldModalOpen(false)}>
+            <form onSubmit={handleSaveField} className="flex flex-col gap-4">
+              <div>
+                <label style={{ fontSize: '12px', color: '#9ca3af', display: 'block', marginBottom: '4px' }}>Field Key (no spaces, e.g. listening_minutes)</label>
+                <input
+                  className="input" required
+                  placeholder="e.g. listening_minutes"
+                  value={fieldForm.name}
+                  onChange={e => setFieldForm(f => ({ ...f, name: e.target.value.toLowerCase().replace(/\s+/g, '_') }))}
+                />
+              </div>
+              <div>
+                <label style={{ fontSize: '12px', color: '#9ca3af', display: 'block', marginBottom: '4px' }}>Display Label</label>
+                <input
+                  className="input" required
+                  placeholder="e.g. Listening (minutes)"
+                  value={fieldForm.label}
+                  onChange={e => setFieldForm(f => ({ ...f, label: e.target.value }))}
+                />
+              </div>
+              <div>
+                <label style={{ fontSize: '12px', color: '#9ca3af', display: 'block', marginBottom: '4px' }}>Field Type</label>
+                <select
+                  className="input"
+                  value={fieldForm.field_type}
+                  onChange={e => setFieldForm(f => ({ ...f, field_type: e.target.value as MetricField['field_type'] }))}
+                >
+                  <option value="int">Integer (0+)</option>
+                  <option value="boolean">Boolean (Yes / No)</option>
+                  <option value="scale_0_5">Scale (0 – 5)</option>
+                  <option value="text">Text (notes)</option>
+                </select>
+              </div>
+              <button type="submit" className="create-btn" style={{ marginTop: '0.5rem' }}>
+                {editingField ? 'Save Changes' : 'Add Field'}
+              </button>
+            </form>
+          </Modal>
+        )}
+
         {/* --- MODALS --- */}
         {modalOpen && (
-            <Modal title={`Create ${modalType}`} onClose={() => setModalOpen(false)}>
+            <Modal title={`${editingItem ? 'Edit' : 'Create'} ${modalType}`} onClose={() => setModalOpen(false)}>
                 <form onSubmit={handleSave} className="flex flex-col gap-4">
                     {modalType === "Axis" && (
                         <>
-                            <input name="name" placeholder="Axis Name (e.g. Academic)" required className="input" />
-                            <input name="description" placeholder="Description (optional)" className="input" />
+                            <input name="name" defaultValue={editingItem?.name} placeholder="Axis Name (e.g. Academic)" required className="input" />
+                            <input name="description" defaultValue={editingItem?.description} placeholder="Description (optional)" className="input" />
                         </>
                     )}
                     {modalType === "Metric" && (
                         <>
-                            <input name="name" placeholder="Metric Name (e.g. Deep Study)" required className="input" />
-                            <select name="axis_id" required className="input">
+                            <input name="name" defaultValue={editingItem?.name} placeholder="Metric Name (e.g. Deep Study)" required className="input" />
+                            <select name="axis_id" defaultValue={editingItem?.axis_id} required className="input">
                                 <option value="">Select Axis</option>
                                 {axes.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
                             </select>
-                            <input name="max_points" type="number" placeholder="Max Points (e.g. 10)" required className="input" />
-                            <input name="difficulty_level" type="number" min="1" max="5" placeholder="Difficulty (1-5)" required className="input" />
+                            <input name="max_points" defaultValue={editingItem?.max_points} type="number" placeholder="Max Points (e.g. 10)" required className="input" />
+                            <input name="difficulty_level" defaultValue={editingItem?.difficulty_level} type="number" min="1" max="5" placeholder="Difficulty (1-5)" required className="input" />
                         </>
                     )}
                     {modalType === "Cycle" && (
                         <>
-                            <input name="name" placeholder="Cycle Name (e.g. Exam Prep)" required className="input" />
+                            <input name="name" defaultValue={editingItem?.name} placeholder="Cycle Name (e.g. Exam Prep)" required className="input" />
                             <div className="flex gap-2">
                                 <div className="flex-1">
                                     <label className="text-xs text-gray-500 block mb-1">Start Date</label>
-                                    <input name="start_date" type="date" required className="input" />
+                                    <input 
+                                        name="start_date" 
+                                        type="date" 
+                                        defaultValue={editingItem?.start_date ? new Date(editingItem.start_date).toISOString().split('T')[0] : ''} 
+                                        required 
+                                        className="input" 
+                                    />
                                 </div>
                                 <div className="flex-1">
                                     <label className="text-xs text-gray-500 block mb-1">End Date</label>
-                                    <input name="end_date" type="date" required className="input" />
+                                    <input 
+                                        name="end_date" 
+                                        type="date" 
+                                        defaultValue={editingItem?.end_date ? new Date(editingItem.end_date).toISOString().split('T')[0] : ''}
+                                        required 
+                                        className="input" 
+                                    />
                                 </div>
                             </div>
                             

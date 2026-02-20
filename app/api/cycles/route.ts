@@ -120,15 +120,23 @@ export async function PUT(request: Request) {
         }
 
         // 1. Update Cycle details
-        const updatedCycle = await sql`
-            UPDATE priority_cycles
-            SET
-                name = COALESCE(${body.name}, name),
-                start_date = COALESCE(${body.start_date}, start_date),
-                end_date = COALESCE(${body.end_date}, end_date)
-            WHERE id = ${body.id}
-            RETURNING *
-        `
+        const updateData: any = {};
+        if (body.name !== undefined) updateData.name = body.name;
+        if (body.start_date !== undefined) updateData.start_date = body.start_date;
+        if (body.end_date !== undefined) updateData.end_date = body.end_date;
+
+        let updatedCycle;
+        if (Object.keys(updateData).length > 0) {
+            updatedCycle = await sql`
+                UPDATE priority_cycles
+                SET ${sql(updateData)}
+                WHERE id = ${body.id}
+                RETURNING *
+            `
+        } else {
+            // If no fields to update, just fetch existing
+            updatedCycle = await sql`SELECT * FROM priority_cycles WHERE id = ${body.id}`
+        }
 
         if (updatedCycle.length === 0) {
             return NextResponse.json({ error: 'Cycle not found' }, { status: 404 })

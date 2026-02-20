@@ -15,6 +15,23 @@ type Metric = {
   difficulty_level: number;
 };
 
+type MetricField = {
+  id: string;
+  metric_id: string;
+  name: string;
+  label: string;
+  field_type: 'int' | 'boolean' | 'scale_0_5' | 'text';
+  active: boolean;
+};
+
+type FieldValue = {
+  field_id: string;
+  metric_id: string;
+  value_int?: number | null;
+  value_bool?: boolean | null;
+  value_text?: string | null;
+};
+
 type DailyEntry = {
   metric_id: string;
   completed: boolean;
@@ -36,6 +53,9 @@ export default function DailyLogPage() {
   const [metrics, setMetrics] = useState<Metric[]>([]);
   const [entries, setEntries] = useState<Record<string, DailyEntry>>({});
   const [summary, setSummary] = useState<DailySummary | null>(null);
+  const [metricFields, setMetricFields] = useState<Record<string, MetricField[]>>({});
+  const [fieldValues, setFieldValues] = useState<Record<string, FieldValue>>({});
+  const [expandedFields, setExpandedFields] = useState<Record<string, boolean>>({});
   
   // UI State
   const [loading, setLoading] = useState(true);
@@ -49,21 +69,33 @@ export default function DailyLogPage() {
         setLoading(true);
         // Parallel fetch: Metrics definition AND Daily Log for selected date
         const [metricsRes, logRes] = await Promise.all([
-          fetch("/api/metrics"),
-          fetch(`/api/daily?date=${date}`)
+          fetch("/api/metrics", { cache: 'no-store' }),
+          fetch(`/api/daily?date=${date}&t=${Date.now()}`, { cache: 'no-store' })
         ]);
 
         const metricsData = await metricsRes.json();
         const logData = await logRes.json();
 
         if (metricsData.success) {
-            setMetrics(metricsData.data);
+            const loadedMetrics = metricsData.data;
+            setMetrics(loadedMetrics);
+            // Fetch fields for all metrics in parallel
+            const fieldResults = await Promise.all(
+              loadedMetrics.map((m: Metric) =>
+                fetch(`/api/metrics/${m.id}/fields`).then(r => r.json())
+              )
+            );
+            const fieldsMap: Record<string, MetricField[]> = {};
+            loadedMetrics.forEach((m: Metric, i: number) => {
+              if (fieldResults[i]?.success) {
+                fieldsMap[m.id] = fieldResults[i].data.filter((f: MetricField) => f.active);
+              }
+            });
+            setMetricFields(fieldsMap);
         }
 
         if (logData.success) {
             setSummary(logData.data.summary);
-            
-            // Map entries array to object for easier active state management
             const entryMap: Record<string, DailyEntry> = {};
             if(logData.data.entries) {
                 logData.data.entries.forEach((e: any) => {
@@ -76,6 +108,21 @@ export default function DailyLogPage() {
                 });
             }
             setEntries(entryMap);
+
+            // Pre-fill field values from saved log
+            if (logData.data.field_values) {
+              const fvMap: Record<string, FieldValue> = {};
+              logData.data.field_values.forEach((fv: any) => {
+                fvMap[fv.field_id] = {
+                  field_id: fv.field_id,
+                  metric_id: fv.metric_id,
+                  value_int: fv.value_int,
+                  value_bool: fv.value_bool,
+                  value_text: fv.value_text,
+                };
+              });
+              setFieldValues(fvMap);
+            }
         }
       } catch (err) {
         console.error(err);
@@ -107,17 +154,25 @@ export default function DailyLogPage() {
       });
   };
 
+  const handleFieldChange = (fieldId: string, metricId: string, field: MetricField, rawValue: any) => {
+    const fv: FieldValue = { field_id: fieldId, metric_id: metricId };
+    if (field.field_type === 'boolean') fv.value_bool = Boolean(rawValue);
+    else if (field.field_type === 'text') fv.value_text = String(rawValue);
+    else fv.value_int = rawValue === '' ? null : Number(rawValue);
+    setFieldValues(prev => ({ ...prev, [fieldId]: fv }));
+  };
+
   const handleSubmit = async () => {
       try {
           setSubmitting(true);
-          // Transform entries object to array
           const payload = {
               date,
               metric_inputs: Object.values(entries).map(e => ({
                   metric_id: e.metric_id,
                   completed: e.completed,
                   time_spent_minutes: e.time_spent_minutes
-              }))
+              })),
+              field_values: Object.values(fieldValues),
           };
 
           const res = await fetch("/api/daily", {
@@ -129,7 +184,7 @@ export default function DailyLogPage() {
           const data = await res.json();
           if (data.success) {
               setSummary(data.data.summary);
-              setMessage("Log saved successfully!");
+              setMessage(data.data.xp ? `✨ +${data.data.xp.xp - (data.data.xp.xp - 10)} XP! Log saved!` : 'Log saved successfully!');
               setTimeout(() => setMessage(null), 3000);
           } else {
               alert("Error saving log");
@@ -170,26 +225,91 @@ export default function DailyLogPage() {
       <main className="metrics-form">
         {axes.map(axisName => {
             const axisMetrics = metrics.filter(m => m.axis_name === axisName);
-            
             return (
                 <div key={axisName} className="axis-section">
                     <h3 className="axis-header">{axisName}</h3>
                     <div className="metrics-grid">
                         {axisMetrics.map(metric => {
                             const entry = entries[metric.id] || { completed: false };
+                            const fields = metricFields[metric.id] || [];
+                            const isExpanded = expandedFields[metric.id];
                             return (
-                                <div key={metric.id} className={`metric-card ${entry.completed ? 'completed' : ''}`} onClick={() => handleToggle(metric.id)}>
-                                    <div className="metric-check">
-                                        <div className={`checkbox ${entry.completed ? 'checked' : ''}`}>
-                                            {entry.completed && "✓"}
-                                        </div>
+                                <div key={metric.id} style={{ borderRadius: '12px', overflow: 'hidden', marginBottom: '6px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)' }}>
+                                  {/* Metric Toggle Row */}
+                                  <div className={`metric-card ${entry.completed ? 'completed' : ''}`}
+                                    style={{ margin: 0, borderRadius: 0, border: 'none', background: 'transparent' }}
+                                    onClick={() => handleToggle(metric.id)}>
+                                      <div className="metric-check">
+                                          <div className={`checkbox ${entry.completed ? 'checked' : ''}`}>
+                                              {entry.completed && "✓"}
+                                          </div>
+                                      </div>
+                                      <div className="metric-info">
+                                          <span className="metric-name">{metric.name}</span>
+                                          <span className="metric-pts">{metric.max_points} pts</span>
+                                      </div>
+                                      {fields.length > 0 && (
+                                        <button
+                                          onClick={e => { e.stopPropagation(); setExpandedFields(prev => ({ ...prev, [metric.id]: !prev[metric.id] })); }}
+                                          style={{ marginLeft: 'auto', background: 'rgba(99,102,241,0.2)', color: '#a5b4fc', border: 'none', borderRadius: '6px', padding: '3px 8px', fontSize: '11px', cursor: 'pointer', flexShrink: 0 }}
+                                        >
+                                          {isExpanded ? '▲' : '▼'} {fields.length} field{fields.length !== 1 ? 's' : ''}
+                                        </button>
+                                      )}
+                                  </div>
+                                  {/* Fields Panel */}
+                                  {fields.length > 0 && isExpanded && (
+                                    <div style={{ background: 'rgba(0,0,0,0.25)', padding: '12px 14px', display: 'grid', gap: '10px' }}>
+                                      {fields.map(field => {
+                                        const fv = fieldValues[field.id];
+                                        return (
+                                          <div key={field.id} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                            <label style={{ fontSize: '12px', color: '#9ca3af', fontWeight: 500 }}>{field.label || field.name}</label>
+                                            {field.field_type === 'boolean' && (
+                                              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                                                <input type="checkbox"
+                                                  checked={Boolean(fv?.value_bool)}
+                                                  onChange={e => handleFieldChange(field.id, metric.id, field, e.target.checked)}
+                                                  style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                                                />
+                                                <span style={{ fontSize: '13px', color: '#e5e7eb' }}>{fv?.value_bool ? 'Yes' : 'No'}</span>
+                                              </label>
+                                            )}
+                                            {field.field_type === 'int' && (
+                                              <input type="number" min={0}
+                                                value={fv?.value_int ?? ''}
+                                                placeholder="0"
+                                                onChange={e => handleFieldChange(field.id, metric.id, field, e.target.value)}
+                                                style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', padding: '6px 10px', color: '#e5e7eb', fontSize: '14px', width: '100%' }}
+                                              />
+                                            )}
+                                            {field.field_type === 'scale_0_5' && (
+                                              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                                {[0,1,2,3,4,5].map(n => (
+                                                  <button key={n}
+                                                    onClick={() => handleFieldChange(field.id, metric.id, field, n)}
+                                                    style={{
+                                                      width: '32px', height: '32px', borderRadius: '50%', border: 'none', cursor: 'pointer', fontWeight: 700, fontSize: '13px',
+                                                      background: (fv?.value_int ?? -1) === n ? '#6366f1' : 'rgba(255,255,255,0.08)',
+                                                      color: (fv?.value_int ?? -1) === n ? 'white' : '#9ca3af',
+                                                    }}>{n}</button>
+                                                ))}
+                                              </div>
+                                            )}
+                                            {field.field_type === 'text' && (
+                                              <textarea
+                                                value={fv?.value_text ?? ''}
+                                                placeholder="Type your notes..."
+                                                rows={2}
+                                                onChange={e => handleFieldChange(field.id, metric.id, field, e.target.value)}
+                                                style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', padding: '6px 10px', color: '#e5e7eb', fontSize: '13px', width: '100%', resize: 'vertical' }}
+                                              />
+                                            )}
+                                          </div>
+                                        );
+                                      })}
                                     </div>
-                                    <div className="metric-info">
-                                        <span className="metric-name">{metric.name}</span>
-                                        <span className="metric-pts">{metric.max_points} pts</span>
-                                    </div>
-                                    {/* Optional: Time Input propagation stop */}
-                                    {/* For now keeping it simple: just toggle */}
+                                  )}
                                 </div>
                             );
                         })}

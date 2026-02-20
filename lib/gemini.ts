@@ -262,7 +262,18 @@ Classify the day into one mode:
 
 Then give a one-line verdict summarizing the day.
 
-📋 SECTION 2 — MISSED ITEMS & WARNINGS
+🔬 SECTION 2 — SUB-METRIC DEEP DIVE
+If the data contains a "sub_metric_fields" object with entries, analyze EVERY metric that has sub-fields.
+For each metric with sub-fields:
+  - List the values logged (e.g., "Listening: 45min", "Fluency Score: 3/5", "Grammar Done: ✅")
+  - Evaluate performance: are the numbers strong, average, or weak?
+  - For scale fields (0-5): flag if score < 3 as concerning, > 4 as excellent
+  - For boolean fields: note done vs not done
+  - For integer fields: compare to what's reasonable (e.g., <30min is low, >120min is strong)
+  - Write 1-2 sentence interpretation per metric (e.g., "Language: 45min listening but fluency only 3/5 suggests passive consumption. Try more active speaking practice.")
+  - If no sub-field data logged: mention it as a gap ("No sub-field data logged for [metric] — consider filling in details next time.")
+
+📋 SECTION 3 — MISSED ITEMS & WARNINGS
 List ALL habits and tasks from items_detail where completed = false.
 For each missed item:
   - Name it explicitly
@@ -276,7 +287,7 @@ Also check for these WARNING conditions:
   ⚠️ Habits this week < last week (habits_this_week_pct < habits_last_week_pct)
   ⚠️ Any habit with avg_rating_7d < 3.0 stars (going through motions)
 
-📈 SECTION 3 — PROGRESS & STREAKS
+📈 SECTION 4 — PROGRESS & STREAKS
 Report:
   - Logging streak: X days
   - Habits this week: X% (↑/↓ vs last week X%)
@@ -284,28 +295,31 @@ Report:
   - Weakest habit (lowest completion_pct)
   - Overall trend direction: improving / stable / declining
 
-💡 SECTION 4 — SMART TIPS
+💡 SECTION 5 — SMART TIPS
 Give 2-3 SPECIFIC, ACTIONABLE tips based on the data. Examples:
   - If sleep < 7h: "Try a 10pm digital curfew tonight. Your focus drops 20% after poor sleep."
   - If habit rating < 3: "You're completing [habit] but rating it low. Consider adjusting the difficulty or time."
   - If focus > 240m but mood low: "High focus + low mood = burnout risk. Add a 15-min walk between sessions."
   - If tasks incomplete but habits done: "Your discipline is strong but task planning needs work. Try time-blocking."
+  - Based on sub-field patterns: give specific advice (e.g., "Your fluency score has been below 3 for 3 days. Consider replacing passive listening with 15min speaking practice.")
   - Reference SPECIFIC numbers from the data. Never be generic.
 
-🎯 SECTION 5 — TOMORROW'S FOCUS
+🎯 SECTION 6 — TOMORROW'S FOCUS
 Based on all the above, recommend ONE single priority for tomorrow.
 This should be the most impactful micro-adjustment.
+If a sub-metric field showed weakness, reference it here.
 
 ═══════════════════════════════════════
 FORMAT RULES:
 ═══════════════════════════════════════
 - Use Telegram Markdown (single * for bold, single _ for italic)
 - Use emoji liberally for visual scanning
-- Keep each section to 2-4 lines max
+- Keep each section to 2-4 lines max (sub-metrics section can be longer if there's data)
 - Reference SPECIFIC numbers (e.g., "Focus dropped from 180m to 90m")
 - If Score >= 85 AND Habits >= 80%: Lead with "🏆 System Coherent. Protect the streak."
 - Trust the provided averages — do NOT recalculate them
-- Be direct, no fluff. Coach energy, not therapist energy.`
+- Be direct, no fluff. Coach energy, not therapist energy.
+- If sub_metric_fields is empty or missing, skip Section 2 entirely.`
 
     const result = await model.generateContent(prompt)
     return result.response.text()
@@ -314,3 +328,66 @@ FORMAT RULES:
     return "⚠️ AI Analysis failed. Please check logs."
   }
 }
+
+// Generate WEEKLY intelligence analysis
+export async function generateWeeklyAnalysis(data: any): Promise<string> {
+    if (!genAI) {
+      return "⚠️ AI Analysis unavailable (API Key missing)."
+    }
+  
+    try {
+      const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
+  
+      const prompt = `You are Bassem's Lead Performance Coach. This is the WEEKLY REVIEW.
+  
+  ═══════════════════════════════════════
+  WEEKLY DATA (JSON):
+  ═══════════════════════════════════════
+  ${JSON.stringify(data, null, 2)}
+  
+  ═══════════════════════════════════════
+  YOUR REPORT (Markdown):
+  ═══════════════════════════════════════
+  
+  # 🗓️ Weekly Performance Review
+  
+  ## 🏆 Key Wins & Bright Spots
+  Identify 2-3 specific things that went well. Look for:
+  - Metrics that improved vs last week
+  - High consistency (streaks)
+  - Be specific! (e.g., "Sleep consistency improved by 15%")
+  
+  ## ⚠️ Areas for Focus
+  Identify 1-2 bottlenecks or declining trends.
+  - Where did we lose momentum?
+  - Which life area was neglected?
+  
+  ## 🔬 Sub-Metric Analysis
+  If "sub_metric_fields_weekly" contains data, analyze each metric's sub-fields:
+  - For integer fields: report total and daily average (e.g., "Total listening: 315min, avg 45min/day")
+  - For scale fields: report the weekly average score and trend (e.g., "Fluency avg: 3.2/5 — below target. Needs active practice")
+  - For boolean fields: report completion rate (e.g., "Grammar done: 5/7 days = 71%")
+  - For text notes: summarize any themes or patterns from the text values
+  - Identify the STRONGEST sub-metric (best performance) and WEAKEST (lowest or most missed)
+  - Give 1-2 actionable suggestions per metric based on the sub-field patterns
+  - If sub_metric_fields_weekly is empty or missing, write "No sub-field data logged this week — consider filling in details daily for richer insights."
+  
+  ## 📊 System Calibration
+  - **Difficulty Check**: Are any habits too easy (100% done) or too hard (<20% done)?
+  - **Balance Check**: Did we over-index on work vs recovery?
+  
+  ## 🚀 Strategy for Next Week
+  - Give 3 bullet points of TACTICAL advice for the upcoming week.
+  - Suggest ONE specific "Theme of the Week".
+  - If sub-metrics revealed a pattern (e.g., low fluency all week), tie it into the strategy.
+  
+  Format with clear headings, emoji, and bold text for readability. Keep it encouraging but analytical.
+  `
+  
+      const result = await model.generateContent(prompt)
+      return result.response.text()
+    } catch (error: any) {
+      console.error('[Gemini] Weekly Analysis error:', error)
+      return "⚠️ AI Analysis failed. Please check logs."
+    }
+  }

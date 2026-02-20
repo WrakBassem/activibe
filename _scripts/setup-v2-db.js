@@ -50,6 +50,7 @@ async function setupV2DB() {
         rule_description TEXT,
         max_points INTEGER DEFAULT 0,
         difficulty_level INTEGER DEFAULT 3 CHECK (difficulty_level BETWEEN 1 AND 5),
+        icon TEXT,
         active BOOLEAN DEFAULT TRUE,
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );

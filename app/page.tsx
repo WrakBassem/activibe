@@ -3,62 +3,69 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { UserAvatar } from "./components/user-avatar";
-
-interface DailyLog {
-  id: number;
-  log_date: string;
-  sleep_hours: string;
-  sleep_quality: number;
-  food_quality: number;
-  activity_level: number;
-  focus_minutes: number;
-  habits_score: number;
-  tasks_done: number;
-  mood: number;
-  final_score: string;
-  fatigue_penalty: number;
-  imbalance_penalty: number;
-  discipline_bonus: number;
-}
+import { StreakCard } from "./components/charts/StreakCard";
+import { WeeklyProgress } from "./components/charts/WeeklyProgress";
 
 export default function Dashboard() {
-  const [logs, setLogs] = useState<DailyLog[]>([]);
+  const [analytics, setAnalytics] = useState<any>(null);
+  const [todayLog, setTodayLog] = useState<any>(null);
+  const [insight, setInsight] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [suggestions, setSuggestions] = useState<any[]>([]);
+  const [xpStatus, setXpStatus] = useState<any>(null);
+  const [levelUpData, setLevelUpData] = useState<{ level: number; newTitles: string[] } | null>(null);
 
   useEffect(() => {
-    async function fetchLogs() {
+    async function fetchData() {
       try {
-        const res = await fetch("/api/logs");
-        const data = await res.json();
-        if (data.success) {
-          setLogs(data.data);
-        } else {
-          setError(data.error);
-        }
+        const [kpiRes, todayRes, insightRes, suggestionsRes, xpRes] = await Promise.all([
+             fetch("/api/analytics"),
+             fetch(`/api/daily`),
+             fetch('/api/coach/insight'),
+             fetch('/api/coach/adaptive'),
+             fetch('/api/xp'),
+        ]);
+
+        const kpiData = await kpiRes.json();
+        const todayData = await todayRes.json();
+        const insightData = await insightRes.json();
+        const suggestionsData = await suggestionsRes.json();
+        const xpData = await xpRes.json();
+
+        if (kpiData.success) setAnalytics(kpiData.data);
+        if (todayData.success) setTodayLog(todayData.data.summary);
+        if (insightData.success) setInsight(insightData.data);
+        if (suggestionsData.success) setSuggestions(suggestionsData.data);
+        if (xpData.success) setXpStatus(xpData.data);
+
       } catch (err: any) {
-        setError(err.message);
+        console.error("Failed to load dashboard data", err);
       } finally {
         setLoading(false);
       }
     }
-    fetchLogs();
+    fetchData();
   }, []);
 
-  // Calculate stats
-  const avgScore = logs.length
-    ? Math.round(logs.reduce((sum, l) => sum + parseFloat(l.final_score || "0"), 0) / logs.length)
-    : 0;
+  const handleApplySuggestion = async (metricId: string, newLevel: number) => {
+      try {
+          const res = await fetch('/api/coach/adaptive', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ metric_id: metricId, new_difficulty: newLevel })
+          });
+          
+          if (res.ok) {
+              // Remove suggestion from UI
+              setSuggestions(prev => prev.filter(s => s.metric_id !== metricId));
+              alert("Difficulty updated! 🚀");
+          }
+      } catch (e) {
+          console.error(e);
+      }
+  };
 
-  const todayStr = new Date().toLocaleDateString("en-CA"); // YYYY-MM-DD in local time
-  const todayLog = logs.find((l) => l.log_date.split("T")[0] === todayStr);
-
-  const weekLogs = logs.slice(0, 7);
-  const weekAvg = weekLogs.length
-    ? Math.round(weekLogs.reduce((sum, l) => sum + parseFloat(l.final_score || "0"), 0) / weekLogs.length)
-    : 0;
-
-  // Get score color
   const getScoreColor = (score: number) => {
     if (score >= 85) return "#22c55e";
     if (score >= 70) return "#84cc16";
@@ -66,418 +73,298 @@ export default function Dashboard() {
     if (score >= 40) return "#f97316";
     return "#ef4444";
   };
-
-  const getScoreLabel = (score: number) => {
-    if (score >= 85) return "Excellent";
-    if (score >= 70) return "Good";
-    if (score >= 55) return "Average";
-    if (score >= 40) return "Unstable";
-    return "Alert";
-  };
-
-  // Format date
-  const formatDate = (dateStr: string) => {
-    const date = new Date(dateStr);
-    return date.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
-  };
-
-  // Mood emoji
-  const getMoodEmoji = (mood: number) => {
-    const emojis = ["😢", "😕", "😐", "🙂", "😄"];
-    return emojis[mood + 2] || "😐";
-  };
-
-  if (loading) {
-    return (
-      <div className="dashboard">
-        <div className="loading">Loading...</div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="dashboard">
-        <div className="error-box">Error: {error}</div>
-      </div>
-    );
-  }
+  
+  if (loading) return <div className="p-8 text-center text-gray-500">Loading Dashboard...</div>;
 
   return (
     <div className="dashboard">
       {/* Header */}
       <header className="dashboard-header">
         <div>
-          <h1 className="dashboard-title">Personal Operating System</h1>
+          <h1 className="dashboard-title">Dashboard</h1>
+          <p className="dashboard-subtitle">{new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}</p>
         </div>
-        <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
-          <Link href="/coach" className="log-button" style={{ background: "#8b5cf6" }}>
-            🧠 AI Coach
-          </Link>
-          <Link href="/daily" className="log-button">
-            + Log Today
-          </Link>
-          <UserAvatar />
+        <div className="flex gap-2 items-center">
+            <Link href="/settings" className="icon-btn" title="Settings">⚙️</Link>
+            <UserAvatar />
         </div>
       </header>
 
-      {/* Stats Cards */}
-      <section className="stats-grid">
-        {/* Today's Score */}
-        <div className="stat-card primary">
-          <span className="stat-label">Today</span>
-          {todayLog ? (
-            <>
-              <span
-                className="stat-value large"
-                style={{ color: getScoreColor(parseFloat(todayLog.final_score)) }}
-              >
-                {Math.round(parseFloat(todayLog.final_score))}
-              </span>
-              <span className="stat-sublabel">{getScoreLabel(parseFloat(todayLog.final_score))}</span>
-            </>
-          ) : (
-            <>
-              <span className="stat-value large muted">--</span>
-              <span className="stat-sublabel">Not logged</span>
-            </>
-          )}
-        </div>
-
-        {/* Week Average */}
-        <div className="stat-card">
-          <span className="stat-label">7-Day Avg</span>
-          <span className="stat-value" style={{ color: getScoreColor(weekAvg) }}>
-            {weekAvg || "--"}
-          </span>
-        </div>
-
-        {/* All-time Average */}
-        <div className="stat-card">
-          <span className="stat-label">All-Time</span>
-          <span className="stat-value" style={{ color: getScoreColor(avgScore) }}>
-            {avgScore || "--"}
-          </span>
-        </div>
-
-        {/* Total Entries */}
-        <div className="stat-card">
-          <span className="stat-label">Entries</span>
-          <span className="stat-value">{logs.length}</span>
-        </div>
-      </section>
-
-      {/* Score Chart (Simple bar visualization) */}
-      {logs.length > 0 && (
-        <section className="chart-section">
-          <h2 className="section-title">Recent Scores</h2>
-          <div className="bar-chart">
-            {weekLogs.reverse().map((log) => {
-              const score = parseFloat(log.final_score || "0");
-              return (
-                <div key={log.id} className="bar-container">
-                  <div
-                    className="bar"
-                    style={{
-                      height: `${score}%`,
-                      backgroundColor: getScoreColor(score),
-                    }}
-                  >
-                    <span className="bar-value">{Math.round(score)}</span>
-                  </div>
-                  <span className="bar-label">{formatDate(log.log_date).split(",")[0]}</span>
-                </div>
-              );
-            })}
+      {/* XP & Level Bar */}
+      {xpStatus && (
+        <div style={{
+          background: 'rgba(255,255,255,0.05)',
+          borderRadius: '12px',
+          padding: '12px 16px',
+          marginBottom: '16px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '12px',
+        }}>
+          {/* Level Badge */}
+          <div style={{
+            background: 'linear-gradient(135deg, #7c3aed, #a855f7)',
+            borderRadius: '50%',
+            width: '40px',
+            height: '40px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: '14px',
+            fontWeight: 700,
+            color: 'white',
+            flexShrink: 0,
+          }}>
+            {xpStatus.level}
           </div>
-        </section>
+          <div style={{ flex: 1 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+              <span style={{ fontSize: '12px', color: '#a78bfa', fontWeight: 600 }}>Level {xpStatus.level}</span>
+              <span style={{ fontSize: '11px', color: '#6b7280' }}>{xpStatus.xpIntoLevel} / {xpStatus.xpNeeded} XP</span>
+            </div>
+            <div style={{ background: 'rgba(255,255,255,0.1)', borderRadius: '99px', height: '6px', overflow: 'hidden' }}>
+              <div style={{
+                background: 'linear-gradient(90deg, #7c3aed, #a855f7)',
+                height: '100%',
+                width: `${xpStatus.progressPercent}%`,
+                borderRadius: '99px',
+                transition: 'width 0.5s ease',
+              }} />
+            </div>
+            {xpStatus.titles?.length > 0 && (
+              <div style={{ marginTop: '6px', display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                {xpStatus.titles.map((t: any) => (
+                  <span key={t.id} title={t.description} style={{
+                    background: 'rgba(168,85,247,0.2)',
+                    color: '#c4b5fd',
+                    fontSize: '10px',
+                    padding: '2px 8px',
+                    borderRadius: '99px',
+                    border: '1px solid rgba(168,85,247,0.3)',
+                  }}>
+                    {t.name}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
       )}
-
-      {/* History List */}
-      <section className="history-section">
-        <h2 className="section-title">History</h2>
-        {logs.length === 0 ? (
-          <div className="empty-state">
-            <p>No logs yet. Start tracking your day!</p>
-            <Link href="/daily" className="log-button">
-              + Log Your First Day
-            </Link>
+      
+      {/* Coach Insight Banner */}
+      {insight && (
+          <div className={`insight-banner ${insight.type}`}>
+              <span className="insight-icon">
+                  {insight.type === 'warning' ? '⚠️' : insight.type === 'danger' ? '🛑' : insight.type === 'success' ? '💡' : 'ℹ️'}
+              </span>
+              <p className="insight-text">{insight.message}</p>
           </div>
-        ) : (
-          <div className="history-list">
-            {logs.map((log) => {
-              const score = parseFloat(log.final_score || "0");
-              return (
-                <div key={log.id} className="history-item">
-                  <div className="history-date">
-                    <span className="date-main">{formatDate(log.log_date)}</span>
-                  </div>
-                  <div className="history-metrics">
-                    <span title="Sleep">🌙 {log.sleep_hours}h</span>
-                    <span title="Focus">🎯 {log.focus_minutes}m</span>
-                    <span title="Mood">{getMoodEmoji(log.mood)}</span>
-                  </div>
-                  <div className="history-score" style={{ color: getScoreColor(score) }}>
-                    {Math.round(score)}
-                  </div>
-                  {/* Penalties/Bonuses */}
-                  <div className="history-modifiers">
-                    {log.fatigue_penalty < 0 && <span className="penalty">⚡ Fatigue</span>}
-                    {log.imbalance_penalty < 0 && <span className="penalty">⚠️ Imbalance</span>}
-                    {log.discipline_bonus > 0 && <span className="bonus">🏆 Discipline</span>}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
+      )}
+      
+      {/* Action Bar */}
+      <section className="action-bar">
+          <Link href="/daily" className="action-btn primary">
+            {todayLog ? "Edit Today's Log" : "📝 Log Today"}
+          </Link>
+          <Link href="/reports" className="action-btn secondary">
+            📊 Reports
+          </Link>
+          <Link href="/coach" className="action-btn secondary">
+            🧠 AI Coach
+          </Link>
       </section>
+
+      {/* KPI Grid */}
+      <section className="kpi-grid">
+           {/* Streak Card */}
+           <StreakCard streak={analytics?.global_streak || 0} label="Global Streak" />
+           
+           {/* Today's Score */}
+           <div className="stat-card">
+               <span className="stat-label">Today's Score</span>
+               <div className="stat-value-wrapper">
+                   {todayLog ? (
+                       <span className="stat-value" style={{ color: getScoreColor(todayLog.total_score) }}>
+                           {todayLog.total_score}
+                       </span>
+                   ) : (
+                       <span className="stat-value muted">--</span>
+                   )}
+               </div>
+               <span className="stat-sublabel">{todayLog?.mode || "Not logged"}</span>
+           </div>
+      </section>
+
+      {/* Weekly Progress Chart */}
+      <section className="chart-section">
+          {analytics?.weekly_scores && <WeeklyProgress data={analytics.weekly_scores} />}
+      </section>
+      
+      {/* Top Metric Streaks */}
+      {analytics?.top_streaks?.length > 0 && (
+          <section className="streaks-list">
+              <h3 className="section-title">Top Habits</h3>
+              <div className="grid gap-2">
+                  {analytics.top_streaks.map((s: any) => (
+                      <div key={s.name} className="streak-row">
+                          <span className="streak-name">{s.icon} {s.name}</span>
+                          <span className="streak-badge">🔥 {s.current_streak} days</span>
+                      </div>
+                  ))}
+              </div>
+          </section>
+      )}
 
       <style jsx>{`
         .dashboard {
-          min-height: 100vh;
           max-width: 600px;
           margin: 0 auto;
-          padding: 1.5rem 1rem;
+          padding: 1.5rem 1rem 4rem;
         }
-
-        .loading,
-        .error-box {
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          min-height: 50vh;
-          color: #6b7280;
-        }
-
-        .error-box {
-          color: #ef4444;
-        }
-
-        /* Header */
         .dashboard-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          margin-bottom: 1.5rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 2rem;
         }
-
         .dashboard-title {
-          font-size: 1.25rem;
-          font-weight: 700;
-          color: var(--foreground);
-          margin: 0;
+            font-size: 1.75rem;
+            font-weight: 800;
+            margin: 0;
+            line-height: 1.2;
+        }
+        .dashboard-subtitle {
+            font-size: 0.9rem;
+            color: #6b7280;
+            margin-top: 0.25rem;
+        }
+        .insight-banner {
+            padding: 1rem;
+            border-radius: 12px;
+            margin-bottom: 1.5rem;
+            display: flex;
+            align-items: flex-start;
+            gap: 0.75rem;
+            font-size: 0.9rem;
+            line-height: 1.5;
+        }
+        .insight-banner.info { background: #eff6ff; color: #1e40af; border: 1px solid #dbeafe; }
+        .insight-banner.success { background: #f0fdf4; color: #166534; border: 1px solid #dcfce7; }
+        .insight-banner.warning { background: #fff7ed; color: #9a3412; border: 1px solid #ffedd5; }
+        .insight-banner.danger { background: #fef2f2; color: #991b1b; border: 1px solid #fee2e2; }
+        
+        @media (prefers-color-scheme: dark) {
+            .insight-banner.info { background: #172554; color: #bfdbfe; border-color: #1e3a8a; }
+            .insight-banner.success { background: #052e16; color: #bbf7d0; border-color: #064e3b; }
+            .insight-banner.warning { background: #451a03; color: #fed7aa; border-color: #7c2d12; }
+            .insight-banner.danger { background: #450a0a; color: #fecaca; border-color: #7f1d1d; }
+        }
+        
+        .insight-icon { font-size: 1.25rem; }
+
+        .icon-btn {
+            font-size: 1.25rem;
+            text-decoration: none;
+            padding: 0.5rem;
+            border-radius: 50%;
+            transition: background 0.2s;
+        }
+        .icon-btn:hover { background: #f3f4f6; }
+
+        .action-bar {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+        .action-btn {
+            text-align: center;
+            padding: 1rem;
+            border-radius: 12px;
+            font-weight: 600;
+            text-decoration: none;
+            transition: transform 0.1s;
+        }
+        .action-btn:active { transform: scale(0.98); }
+        .action-btn.primary {
+            background: #6366f1;
+            color: white;
+            box-shadow: 0 4px 10px rgba(99, 102, 241, 0.3);
+        }
+        .action-btn.secondary {
+            background: white;
+            border: 1px solid #e5e7eb;
+            color: #4b5563;
+        }
+        @media (prefers-color-scheme: dark) {
+            .action-btn.secondary { background: #1f1f1f; border-color: #333; color: #e5e7eb; }
+            .icon-btn:hover { background: #333; }
         }
 
-        .log-button {
-          background: #6366f1;
-          color: white;
-          padding: 0.5rem 1rem;
-          border-radius: 8px;
-          font-size: 0.875rem;
-          font-weight: 600;
-          text-decoration: none;
-          transition: background 0.15s;
+        .kpi-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+            margin-bottom: 2rem;
         }
-
-        .log-button:hover {
-          background: #4f46e5;
-        }
-
-        /* Stats Grid */
-        .stats-grid {
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 0.75rem;
-          margin-bottom: 1.5rem;
-        }
-
         .stat-card {
-          background: var(--background);
-          border: 1px solid #e5e7eb;
-          border-radius: 12px;
-          padding: 1rem;
-          display: flex;
-          flex-direction: column;
-          gap: 0.25rem;
+            background: white;
+            border: 1px solid #e5e7eb;
+            border-radius: 16px;
+            padding: 1.5rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
         }
-
-        .stat-card.primary {
-          grid-column: span 2;
-          align-items: center;
-          padding: 1.25rem;
-        }
-
         @media (prefers-color-scheme: dark) {
-          .stat-card {
-            border-color: #2a2a2a;
-            background: #111;
-          }
+            .stat-card { background: #1f1f1f; border-color: #333; }
         }
-
         .stat-label {
-          font-size: 0.75rem;
-          color: #6b7280;
-          text-transform: uppercase;
-          letter-spacing: 0.05em;
+            font-size: 0.75rem;
+            color: #6b7280;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 0.5rem;
         }
+        .stat-value { font-size: 2.5rem; font-weight: 800; line-height: 1; }
+        .stat-value.muted { color: #d1d5db; }
+        .stat-sublabel { font-size: 0.85rem; color: #9ca3af; margin-top: 0.25rem; }
 
-        .stat-value {
-          font-size: 1.75rem;
-          font-weight: 700;
-        }
-
-        .stat-value.large {
-          font-size: 3rem;
-        }
-
-        .stat-value.muted {
-          color: #9ca3af;
-        }
-
-        .stat-sublabel {
-          font-size: 0.875rem;
-          color: #6b7280;
-        }
-
-        /* Chart */
-        .chart-section {
-          margin-bottom: 1.5rem;
-        }
-
+        .chart-section { margin-bottom: 2rem; }
+        
         .section-title {
-          font-size: 0.875rem;
-          font-weight: 600;
-          color: #6b7280;
-          margin: 0 0 0.75rem;
-          text-transform: uppercase;
-          letter-spacing: 0.05em;
+            font-size: 1rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            color: #374151;
         }
+        @media (prefers-color-scheme: dark) { .section-title { color: #d1d5db; } }
 
-        .bar-chart {
-          display: flex;
-          gap: 0.5rem;
-          height: 120px;
-          align-items: flex-end;
-          padding: 0.5rem;
-          background: var(--background);
-          border: 1px solid #e5e7eb;
-          border-radius: 12px;
+        .streak-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: white;
+            padding: 0.75rem 1rem;
+            border-radius: 12px;
+            border: 1px solid #e5e7eb;
         }
-
         @media (prefers-color-scheme: dark) {
-          .bar-chart {
-            border-color: #2a2a2a;
-            background: #111;
-          }
+            .streak-row { background: #1f1f1f; border-color: #333; }
         }
-
-        .bar-container {
-          flex: 1;
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          height: 100%;
+        .streak-name { font-weight: 500; }
+        .streak-badge { 
+            background: #fff7ed; 
+            color: #c2410c; 
+            font-size: 0.75rem; 
+            font-weight: 600; 
+            padding: 0.25rem 0.6rem; 
+            border-radius: 99px; 
         }
-
-        .bar {
-          width: 100%;
-          border-radius: 4px 4px 0 0;
-          display: flex;
-          align-items: flex-start;
-          justify-content: center;
-          min-height: 20px;
-          transition: height 0.3s ease;
-        }
-
-        .bar-value {
-          font-size: 0.625rem;
-          font-weight: 600;
-          color: white;
-          padding-top: 0.25rem;
-        }
-
-        .bar-label {
-          font-size: 0.625rem;
-          color: #9ca3af;
-          margin-top: 0.25rem;
-        }
-
-        /* History */
-        .history-section {
-          margin-bottom: 2rem;
-        }
-
-        .empty-state {
-          text-align: center;
-          padding: 2rem;
-          color: #6b7280;
-        }
-
-        .history-list {
-          display: flex;
-          flex-direction: column;
-          gap: 0.5rem;
-        }
-
-        .history-item {
-          display: grid;
-          grid-template-columns: 1fr auto auto auto;
-          align-items: center;
-          gap: 0.75rem;
-          padding: 0.75rem 1rem;
-          background: var(--background);
-          border: 1px solid #e5e7eb;
-          border-radius: 10px;
-        }
-
         @media (prefers-color-scheme: dark) {
-          .history-item {
-            border-color: #2a2a2a;
-            background: #111;
-          }
-        }
-
-        .history-date {
-          display: flex;
-          flex-direction: column;
-        }
-
-        .date-main {
-          font-size: 0.875rem;
-          font-weight: 500;
-          color: var(--foreground);
-        }
-
-        .history-metrics {
-          display: flex;
-          gap: 0.5rem;
-          font-size: 0.75rem;
-          color: #6b7280;
-        }
-
-        .history-score {
-          font-size: 1.25rem;
-          font-weight: 700;
-          min-width: 40px;
-          text-align: right;
-        }
-
-        .history-modifiers {
-          display: flex;
-          flex-direction: column;
-          gap: 0.125rem;
-          min-width: 80px;
-        }
-
-        .penalty {
-          font-size: 0.625rem;
-          color: #ef4444;
-        }
-
-        .bonus {
-          font-size: 0.625rem;
-          color: #22c55e;
+             .streak-badge { background: #431407; color: #fdba74; }
         }
       `}</style>
     </div>
