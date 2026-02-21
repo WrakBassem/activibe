@@ -109,7 +109,7 @@ export async function POST(request: Request) {
 
     // 2. Fetch All Active Metrics
     const metrics = await sql`
-        SELECT id, axis_id, max_points 
+        SELECT id, axis_id, max_points, input_type 
         FROM metrics 
         WHERE active = TRUE
     `
@@ -133,12 +133,31 @@ export async function POST(request: Request) {
     }
 
     // Calculate Raw Points Achieved
-    const processedEntries: Array<{ metric_id: string; completed: boolean; score_awarded: number; time_spent: number | null }> = [];
+    const processedEntries: Array<{ metric_id: string; completed: boolean; score_awarded: number; time_spent: number | null; review: string | null; score_value: number | null }> = [];
     for (const input of metric_inputs) {
         const metric = metricsMap.get(input.metric_id);
         if (!metric) continue; // Skip unknown/inactive metrics
 
-        const scoreAwarded = input.completed ? metric.max_points : 0;
+        // Calculate score based on input_type
+        const inputType = metric.input_type || 'boolean';
+        let scoreAwarded = 0;
+        let completed = false;
+        const scoreValue = input.score_value ?? null;
+
+        if (inputType === 'boolean') {
+            completed = input.completed;
+            scoreAwarded = completed ? metric.max_points : 0;
+        } else if (inputType === 'emoji_5' || inputType === 'scale_0_5') {
+            // Proportional: (value / 5) * max_points
+            const val = Math.min(Math.max(Number(scoreValue) || 0, 0), 5);
+            scoreAwarded = Math.round((val / 5) * metric.max_points);
+            completed = val > 0;
+        } else if (inputType === 'scale_0_10') {
+            // Proportional: (value / 10) * max_points
+            const val = Math.min(Math.max(Number(scoreValue) || 0, 0), 10);
+            scoreAwarded = Math.round((val / 10) * metric.max_points);
+            completed = val > 0;
+        }
         
         if (axisScores[metric.axis_id]) {
             axisScores[metric.axis_id].raw += scoreAwarded;
@@ -146,9 +165,11 @@ export async function POST(request: Request) {
 
         processedEntries.push({
             metric_id: input.metric_id,
-            completed: input.completed,
+            completed,
             score_awarded: scoreAwarded,
-            time_spent: input.time_spent_minutes || null
+            time_spent: input.time_spent_minutes || null,
+            review: input.review || null,
+            score_value: scoreValue,
         });
     }
 
@@ -254,12 +275,14 @@ export async function POST(request: Request) {
                 completed: e.completed,
                 score_awarded: e.score_awarded,
                 time_spent_minutes: e.time_spent, 
-                user_id: userId
+                user_id: userId,
+                review: e.review,
+                score_value: e.score_value,
             }));
 
             // Force type casting to avoid "not callable" TS error with postgres.js transaction
             await (tx as any)`
-                INSERT INTO daily_entries ${sql(rows, 'date', 'metric_id', 'completed', 'score_awarded', 'time_spent_minutes', 'user_id')}
+                INSERT INTO daily_entries ${sql(rows, 'date', 'metric_id', 'completed', 'score_awarded', 'time_spent_minutes', 'user_id', 'review', 'score_value')}
             `
         }
 
@@ -319,16 +342,28 @@ export async function POST(request: Request) {
       }
     }
 
-    // 8. Award XP
+    // 8. Award XP (only on FIRST submission for this date, skip on re-submissions)
     let xpResult = null
     try {
-      let xpToAward = XP_PER_LOG
-      let xpReason = 'Daily log submitted'
-      if (finalScore === 100) {
-        xpToAward += XP_PER_PERFECT_SCORE
-        xpReason = 'Perfect day! All tasks completed.'
+      // Check if XP was already awarded for this date
+      const existingXP = await sql`
+        SELECT id FROM user_xp_log 
+        WHERE user_id = ${userId} 
+          AND reason LIKE ${'daily_log:' + logDate + '%'}
+        LIMIT 1
+      `
+
+      if (existingXP.length === 0) {
+        // First submission for this date — award XP
+        let xpToAward = XP_PER_LOG
+        let xpReason = `daily_log:${logDate}`
+        if (finalScore === 100) {
+          xpToAward += XP_PER_PERFECT_SCORE
+          xpReason = `daily_log:${logDate}:perfect`
+        }
+        xpResult = await awardXP(userId, xpReason, xpToAward)
       }
-      xpResult = await awardXP(userId, xpReason, xpToAward)
+      // else: XP already awarded for this date, skip (user is editing their log)
     } catch (xpErr: any) {
       console.warn('[POST /api/daily] XP award failed (non-fatal):', xpErr.message)
     }

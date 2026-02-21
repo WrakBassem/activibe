@@ -31,10 +31,10 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: 'No data found for this date. Please log first.' }, { status: 404 })
         }
 
-        // 2. Get Details (Habits/Tasks)
+        // 2. Get Details (Habits/Tasks) with reviews and score values
         const items = await sql`
             SELECT 
-                de.*, m.name, m.difficulty_level, m.max_points,
+                de.*, m.name, m.difficulty_level, m.max_points, m.input_type,
                 CASE WHEN s.current_streak IS NULL THEN 0 ELSE s.current_streak END as streak
             FROM daily_entries de
             JOIN metrics m ON de.metric_id = m.id
@@ -91,7 +91,10 @@ export async function POST(request: Request) {
                 completed: i.completed,
                 score_awarded: i.score_awarded,
                 max: i.max_points,
-                streak: i.streak
+                streak: i.streak,
+                input_type: i.input_type || 'boolean',
+                score_value: i.score_value,
+                review: i.review || null,
             })),
             history: historyOnDate,
             sub_metric_fields: fieldValuesByMetric,
@@ -116,18 +119,21 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: 'No data found for this week.' }, { status: 404 })
         }
 
-        // 2. Get Aggregated Metrics
+        // 2. Get Aggregated Metrics with score_value averages and input types
         const metricStats = await sql`
             SELECT 
                 m.name,
+                m.input_type,
                 COUNT(de.id) as total_days,
                 SUM(CASE WHEN de.completed THEN 1 ELSE 0 END) as completed_days,
-                SUM(de.score_awarded) as total_points
+                SUM(de.score_awarded) as total_points,
+                ROUND(AVG(de.score_value) FILTER (WHERE de.score_value IS NOT NULL), 1) as avg_score_value,
+                ARRAY_AGG(de.review) FILTER (WHERE de.review IS NOT NULL AND de.review != '') as reviews
             FROM daily_entries de
             JOIN metrics m ON de.metric_id = m.id
             WHERE de.user_id = ${userId}
             AND de.date BETWEEN ${start} AND ${end}
-            GROUP BY m.name
+            GROUP BY m.name, m.input_type
         `
 
         // 3. Get sub-field values for the week (averages/sums per field)

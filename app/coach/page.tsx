@@ -164,13 +164,25 @@ export default function CoachPage() {
     }
   }
 
-  // Simple markdown-like renderer for AI messages
+  // Rich markdown-like renderer for AI messages
   function renderMessage(text: string) {
     return text
-      .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
-      .replace(/\*(.*?)\*/g, "<em>$1</em>")
-      .replace(/`(.*?)`/g, "<code>$1</code>")
-      .replace(/\n/g, "<br/>");
+      // Headers (## Heading)
+      .replace(/^### (.+)$/gm, '<h4 style="font-size:0.85rem;font-weight:700;color:#a78bfa;margin:0.75rem 0 0.25rem;">$1</h4>')
+      .replace(/^## (.+)$/gm, '<h3 style="font-size:0.95rem;font-weight:700;color:#818cf8;margin:1rem 0 0.375rem;padding-top:0.5rem;border-top:1px solid rgba(255,255,255,0.06);">$1</h3>')
+      .replace(/^# (.+)$/gm, '<h2 style="font-size:1.1rem;font-weight:800;margin:0 0 0.5rem;">$1</h2>')
+      // Bold & Italic
+      .replace(/\*\*(.+?)\*\*/g, '<strong style="color:#f3f4f6;font-weight:600;">$1</strong>')
+      .replace(/\*(.+?)\*/g, '<em style="color:#c4b5fd;font-style:italic;">$1</em>')
+      .replace(/_(.+?)_/g, '<em style="color:#c4b5fd;font-style:italic;">$1</em>')
+      // Code
+      .replace(/`(.+?)`/g, '<code style="background:rgba(99,102,241,0.12);color:#c4b5fd;padding:0.1em 0.4em;border-radius:4px;font-size:0.82em;">$1</code>')
+      // Bullet lists
+      .replace(/^[-•] (.+)$/gm, '<div style="display:flex;gap:0.5rem;align-items:flex-start;padding:0.2rem 0;"><span style="color:#6366f1;font-size:0.55rem;margin-top:0.4rem;">●</span><span>$1</span></div>')
+      // Dividers
+      .replace(/^[━═─]{3,}.*$/gm, '<hr style="border:none;height:1px;background:rgba(255,255,255,0.06);margin:0.75rem 0;"/>')
+      // Newlines
+      .replace(/\n/g, '<br/>');
   }
 
   if (loading) {

@@ -21,6 +21,14 @@ type Metric = {
   max_points: number;
   difficulty_level: number;
   active: boolean;
+  input_type: 'boolean' | 'emoji_5' | 'scale_0_5' | 'scale_0_10';
+};
+
+const INPUT_TYPE_LABELS: Record<string, string> = {
+  boolean: '✅ Checkbox',
+  emoji_5: '😊 Emoji (5)',
+  scale_0_5: '🔢 Scale 0-5',
+  scale_0_10: '📊 Scale 0-10',
 };
 
 type MetricField = {
@@ -282,12 +290,13 @@ export default function SettingsPage() {
       const data: any = Object.fromEntries(formData.entries());
       
       // Additional formatting
-      if (modalType === "Metric") {
-           data.max_points = parseInt(data.max_points);
-           data.difficulty_level = parseInt(data.difficulty_level);
-           // Maintain active status if editing, else default to true
-           if (!editingItem) data.active = true;
-      }
+       if (modalType === "Metric") {
+            data.max_points = parseInt(data.max_points);
+            data.difficulty_level = parseInt(data.difficulty_level);
+            if (!data.input_type) data.input_type = 'boolean';
+            // Maintain active status if editing, else default to true
+            if (!editingItem) data.active = true;
+       }
       if (modalType === "Axis") {
            // Maintain active status if editing, else default to true
            if (!editingItem) data.active = true;
@@ -413,7 +422,7 @@ export default function SettingsPage() {
                                   <div className="item-card small" style={{ margin: 0, borderRadius: 0, border: 'none' }}>
                                       <div className="item-info" style={{ flex: 1 }}>
                                           <span className="item-name">{metric.name}</span>
-                                          <span className="item-meta">Max: {metric.max_points}pts • Lvl {metric.difficulty_level}</span>
+                                          <span className="item-meta">Max: {metric.max_points}pts • Lvl {metric.difficulty_level} • {INPUT_TYPE_LABELS[metric.input_type] || INPUT_TYPE_LABELS.boolean}</span>
                                       </div>
                                       <div className="item-actions">
                                           <button
@@ -567,6 +576,12 @@ export default function SettingsPage() {
                             <select name="axis_id" defaultValue={editingItem?.axis_id} required className="input">
                                 <option value="">Select Axis</option>
                                 {axes.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                            </select>
+                            <select name="input_type" defaultValue={editingItem?.input_type || 'boolean'} className="input">
+                                <option value="boolean">✅ Checkbox (Done / Not Done)</option>
+                                <option value="emoji_5">😊 Emoji Scale (5 faces)</option>
+                                <option value="scale_0_5">🔢 Numeric Scale (0-5)</option>
+                                <option value="scale_0_10">📊 Numeric Scale (0-10)</option>
                             </select>
                             <input name="max_points" defaultValue={editingItem?.max_points} type="number" placeholder="Max Points (e.g. 10)" required className="input" />
                             <input name="difficulty_level" defaultValue={editingItem?.difficulty_level} type="number" min="1" max="5" placeholder="Difficulty (1-5)" required className="input" />

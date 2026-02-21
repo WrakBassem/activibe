@@ -46,9 +46,19 @@ export async function POST(request: Request) {
         AND user_id = ${userId}
       ORDER BY created_at DESC
     `
+    // 4. Load recent metric reviews and score values (last 7 days)
+    const recentReviews = await sql`
+      SELECT de.date, m.name as metric_name, m.input_type, de.score_value, de.review
+      FROM daily_entries de
+      JOIN metrics m ON de.metric_id = m.id
+      WHERE de.user_id = ${userId}
+        AND de.review IS NOT NULL AND de.review != ''
+      ORDER BY de.date DESC
+      LIMIT 20
+    `
 
-    // 4. Build system prompt with all context
-    const systemPrompt = buildCoachSystemPrompt(profile, recentLogs, goals)
+    // 5. Build system prompt with all context
+    const systemPrompt = buildCoachSystemPrompt(profile, recentLogs, goals, recentReviews)
 
     // 5. Load or create session
     let sessionMessages: { role: string; content: string }[] = []

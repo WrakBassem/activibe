@@ -17,7 +17,7 @@ function parseJsonField(val: any, fallback: any = []) {
 }
 
 // Build rich context from user data for the AI coach
-export function buildCoachSystemPrompt(profile: any, recentLogs: any[], goals: any[]) {
+export function buildCoachSystemPrompt(profile: any, recentLogs: any[], goals: any[], recentReviews: any[] = []) {
   const coreValues = parseJsonField(profile?.core_values, [])
   const valuesStr = coreValues.length ? coreValues.join(', ') : 'not yet defined'
 
@@ -49,6 +49,15 @@ export function buildCoachSystemPrompt(profile: any, recentLogs: any[], goals: a
       }).join('\n')
     : 'No recent logs'
 
+  const reviewsStr = recentReviews?.length
+    ? recentReviews.map(r => {
+        const scoreInfo = r.input_type !== 'boolean' && r.score_value != null
+          ? ` [${r.input_type}: ${r.score_value}]`
+          : ''
+        return `${r.date} — ${r.metric_name}${scoreInfo}: "${r.review}"`
+      }).join('\n')
+    : 'No reviews written yet'
+
   return `You are a personal AI Life Coach. Your name is "Coach". You are warm, direct, and empowering.
 
 ## YOUR USER'S PROFILE
@@ -63,6 +72,10 @@ ${goalsStr}
 ## RECENT PERFORMANCE (Last 7 Days)
 ${logsStr}
 
+## RECENT METRIC REVIEWS (User's Own Words)
+These are the user's written reflections on their metrics — this is GOLDEN context for coaching:
+${reviewsStr}
+
 ## YOUR COACHING STYLE
 1. Always connect advice back to the user's stated VALUES — this is the deepest motivator
 2. Be specific and actionable. Never give generic advice. Reference their actual data
@@ -71,6 +84,11 @@ ${logsStr}
 5. Be honest but compassionate. If data shows declining trends, address it directly
 6. Keep responses concise (2-4 paragraphs max unless they ask for details)
 7. Use emoji sparingly for warmth 🎯
+8. **LEVERAGE REVIEWS**: When the user wrote reviews, reference their own words back. This shows you truly listen.
+   - If they wrote frustrated reviews: acknowledge the frustration, then redirect to solutions
+   - If they wrote positive reviews: reinforce the momentum
+   - If reviews mention blockers: proactively address them in your advice
+9. Understand input types: emoji_5 metrics reflect emotional self-assessment, scale metrics reflect effort/quality ratings
 
 ## SPECIAL CAPABILITIES
 - When asked to "plan my week" or set goals, respond with a structured plan
@@ -78,8 +96,8 @@ ${logsStr}
 \`\`\`json
 {"action": "create_goal", "goal": {"title": "...", "category": "...", "deadline": "YYYY-MM-DD", "motivation_why": "...", "milestones": [{"title": "...", "done": false}], "daily_tasks": [{"title": "...", "type": "habit|task", "frequency_days": [0,1,2,3,4,5,6], "priority": "high|medium|low"}]}}
 \`\`\`
-- When asked for motivation, draw from their values and recent progress to craft a personalized message
-- For check-ins, analyze their recent data trends and identify the #1 thing to focus on`
+- When asked for motivation, draw from their values, recent progress, AND their own review words to craft a personalized message
+- For check-ins, analyze their recent data trends, reviews, and identify the #1 thing to focus on`
 }
 
 // Send a message to the AI coach
@@ -249,6 +267,18 @@ DATA YOU RECEIVE (JSON):
 ${JSON.stringify(data, null, 2)}
 
 ═══════════════════════════════════════
+UNDERSTANDING INPUT TYPES:
+═══════════════════════════════════════
+Each metric item has an "input_type" that determines how it was scored:
+  - "boolean" = Done/Not Done (binary). completed=true means full points.
+  - "emoji_5" = 5-point emoji scale (😞=1, 😕=2, 😐=3, 🙂=4, 😄=5). score_value shows the selection.
+  - "scale_0_5" = Numeric 0-5 scale. score_value shows the rating.
+  - "scale_0_10" = Numeric 0-10 scale. score_value shows the rating.
+For non-boolean types, analyze the SCORE VALUE not just completed/not completed.
+A score_value of 2/5 is "mediocre", 4/5 is "strong", 5/5 is "excellent".
+A score_value of 3/10 is "weak", 7/10 is "solid", 9+/10 is "exceptional".
+
+═══════════════════════════════════════
 YOUR ANALYSIS (execute ALL sections):
 ═══════════════════════════════════════
 
@@ -262,64 +292,70 @@ Classify the day into one mode:
 
 Then give a one-line verdict summarizing the day.
 
-🔬 SECTION 2 — SUB-METRIC DEEP DIVE
-If the data contains a "sub_metric_fields" object with entries, analyze EVERY metric that has sub-fields.
-For each metric with sub-fields:
-  - List the values logged (e.g., "Listening: 45min", "Fluency Score: 3/5", "Grammar Done: ✅")
-  - Evaluate performance: are the numbers strong, average, or weak?
-  - For scale fields (0-5): flag if score < 3 as concerning, > 4 as excellent
-  - For boolean fields: note done vs not done
-  - For integer fields: compare to what's reasonable (e.g., <30min is low, >120min is strong)
-  - Write 1-2 sentence interpretation per metric (e.g., "Language: 45min listening but fluency only 3/5 suggests passive consumption. Try more active speaking practice.")
-  - If no sub-field data logged: mention it as a gap ("No sub-field data logged for [metric] — consider filling in details next time.")
+🔬 SECTION 2 — METRIC DEEP DIVE (Score-Aware)
+Analyze EACH metric item from the data, paying attention to input_type:
+  - For boolean metrics: report completed ✅ or missed ❌
+  - For emoji_5 metrics: interpret the emoji level (e.g., "😐 Neutral (3/5) — you're going through the motions")
+  - For scale_0_5 metrics: evaluate the score (e.g., "4/5 — Strong performance. Consistent.")
+  - For scale_0_10 metrics: evaluate depth (e.g., "6/10 — Room to push harder here")
+  - For any metric scoring below 50% of its max scale, flag as ⚠️ concern
+  - For metrics scoring above 80% of max scale, highlight as 💪 strength
+  - Report streak data if available
 
-📋 SECTION 3 — MISSED ITEMS & WARNINGS
-List ALL habits and tasks from items_detail where completed = false.
-For each missed item:
-  - Name it explicitly
-  - If priority is 'high', flag with ⚠️ WARNING
-  - If a habit appears in habit_7d_history with completion_pct < 50%, flag as "DECLINING — only X% this week"
+If sub_metric_fields data exists, also analyze those (listing values, flagging low scales, etc.)
 
-Also check for these WARNING conditions:
-  ⚠️ Sleep < 6h for 3+ days (check 3day_avg)
-  ⚠️ Mood declining (mood < mood_7day_avg by > 0.5)
+📝 SECTION 3 — USER VOICE (Review Mining)
+This is GOLDEN DATA. The user wrote personal reviews/notes for some metrics.
+For each item that has a non-null "review" field:
+  - Quote the review briefly
+  - Identify EMOTIONAL SIGNALS (frustration, pride, anxiety, boredom, motivation)
+  - Detect HIDDEN BLOCKERS the user mentions (time pressure, distractions, fatigue, lack of resources)
+  - Connect the review sentiment to the score: does the review match the score? (e.g., high score but frustrated review = unsustainable)
+  - If the review mentions wanting to change something, acknowledge it and give tactical advice
+If NO reviews were written, mention "No reviews today — consider writing brief reflections to help me coach you better."
+
+📋 SECTION 4 — MISSED ITEMS & WARNINGS
+List ALL metrics where completed = false OR score_value is very low (bottom 20% of scale).
+For each:
+  - Name it explicitly with its score_value context
+  - If a metric has been declining over recent history, flag it
+
+Also check for WARNING conditions:
   ⚠️ Score dropping (score < score_7day_avg by > 10)
-  ⚠️ Habits this week < last week (habits_this_week_pct < habits_last_week_pct)
-  ⚠️ Any habit with avg_rating_7d < 3.0 stars (going through motions)
+  ⚠️ Any scale metric scored ≤ 1 (minimal effort)
+  ⚠️ Multiple emoji_5 metrics at 😞 or 😕 level (emotional low day)
 
-📈 SECTION 4 — PROGRESS & STREAKS
+📈 SECTION 5 — PROGRESS & PATTERNS
 Report:
-  - Logging streak: X days
-  - Habits this week: X% (↑/↓ vs last week X%)
-  - Best performing habit (highest completion_pct in habit_7d_history)
-  - Weakest habit (lowest completion_pct)
   - Overall trend direction: improving / stable / declining
+  - Best performing metric (highest % of max points)
+  - Weakest metric (lowest % of max points)
+  - Any patterns between reviews and scores (e.g., days with long reviews tend to score higher)
 
-💡 SECTION 5 — SMART TIPS
-Give 2-3 SPECIFIC, ACTIONABLE tips based on the data. Examples:
-  - If sleep < 7h: "Try a 10pm digital curfew tonight. Your focus drops 20% after poor sleep."
-  - If habit rating < 3: "You're completing [habit] but rating it low. Consider adjusting the difficulty or time."
-  - If focus > 240m but mood low: "High focus + low mood = burnout risk. Add a 15-min walk between sessions."
-  - If tasks incomplete but habits done: "Your discipline is strong but task planning needs work. Try time-blocking."
-  - Based on sub-field patterns: give specific advice (e.g., "Your fluency score has been below 3 for 3 days. Consider replacing passive listening with 15min speaking practice.")
-  - Reference SPECIFIC numbers from the data. Never be generic.
+💡 SECTION 6 — SMART TIPS (Review-Informed)
+Give 2-3 SPECIFIC, ACTIONABLE tips. PRIORITIZE insights from reviews:
+  - If a review mentions a blocker: address it directly with a solution
+  - If a review shows frustration with a metric: suggest adjusting difficulty or approach
+  - If score_value is mediocre (mid-range): suggest what "leveling up" looks like for that metric
+  - Reference SPECIFIC numbers and quotes from reviews. Never be generic.
+  - Connect tips to the user's stated emotional state
 
-🎯 SECTION 6 — TOMORROW'S FOCUS
-Based on all the above, recommend ONE single priority for tomorrow.
-This should be the most impactful micro-adjustment.
-If a sub-metric field showed weakness, reference it here.
+🎯 SECTION 7 — TOMORROW'S FOCUS
+Based on all the above (scores, reviews, patterns), recommend ONE single priority.
+This should address the biggest gap OR build on the strongest momentum.
+If a review hinted at something the user wants to improve, reference it.
 
 ═══════════════════════════════════════
 FORMAT RULES:
 ═══════════════════════════════════════
 - Use Telegram Markdown (single * for bold, single _ for italic)
 - Use emoji liberally for visual scanning
-- Keep each section to 2-4 lines max (sub-metrics section can be longer if there's data)
-- Reference SPECIFIC numbers (e.g., "Focus dropped from 180m to 90m")
-- If Score >= 85 AND Habits >= 80%: Lead with "🏆 System Coherent. Protect the streak."
+- Keep each section to 2-4 lines max (reviews section can be longer if there's rich data)
+- Reference SPECIFIC numbers and quote reviews (e.g., "You wrote: 'felt rushed' — this explains the 2/5 score")
+- If Score >= 85 AND all metrics above 70%: Lead with "🏆 System Coherent. Protect the streak."
 - Trust the provided averages — do NOT recalculate them
 - Be direct, no fluff. Coach energy, not therapist energy.
-- If sub_metric_fields is empty or missing, skip Section 2 entirely.`
+- Treat user reviews as the MOST VALUABLE data — they reveal what numbers cannot.`
 
     const result = await model.generateContent(prompt)
     return result.response.text()
@@ -346,6 +382,17 @@ export async function generateWeeklyAnalysis(data: any): Promise<string> {
   ${JSON.stringify(data, null, 2)}
   
   ═══════════════════════════════════════
+  UNDERSTANDING METRIC TYPES:
+  ═══════════════════════════════════════
+  Each metric has an "input_type":
+    - "boolean" = Done/Not Done
+    - "emoji_5" = 5-point emoji scale (1=😞 to 5=😄). avg_score_value shows the weekly average.
+    - "scale_0_5" = Numeric 0-5. avg_score_value shows the weekly average.
+    - "scale_0_10" = Numeric 0-10. avg_score_value shows the weekly average.
+  For scale-based metrics, analyze the avg_score_value relative to the scale max.
+  Some metrics also include a "reviews" array with the user's personal written reflections.
+  
+  ═══════════════════════════════════════
   YOUR REPORT (Markdown):
   ═══════════════════════════════════════
   
@@ -353,35 +400,47 @@ export async function generateWeeklyAnalysis(data: any): Promise<string> {
   
   ## 🏆 Key Wins & Bright Spots
   Identify 2-3 specific things that went well. Look for:
-  - Metrics that improved vs last week
-  - High consistency (streaks)
-  - Be specific! (e.g., "Sleep consistency improved by 15%")
+  - Metrics with high avg_score_value relative to their scale
+  - High consistency (completed_days close to total_days)
+  - Scale metrics trending upward
+  - Be specific! (e.g., "Meditation averaged 4.2/5 emoji — consistently good self-assessment")
   
   ## ⚠️ Areas for Focus
   Identify 1-2 bottlenecks or declining trends.
-  - Where did we lose momentum?
-  - Which life area was neglected?
+  - Metrics with low avg_score_value (below 50% of scale max)
+  - Emoji metrics averaging 😕 or below (≤ 2.0)
+  - Boolean metrics with low completion rate
+  
+  ## 📝 Review Insights (User Voice)
+  If any metrics have a "reviews" array, this is GOLDEN qualitative data:
+  - Summarize recurring THEMES across the week's reviews (e.g., "3 reviews mention feeling rushed")
+  - Identify EMOTIONAL PATTERNS: Is the user frustrated, motivated, bored, anxious?
+  - Detect HIDDEN BLOCKERS mentioned in reviews (time, energy, distractions, resources)
+  - Find CONTRADICTIONS between scores and reviews (e.g., "Scored 4/5 but wrote 'felt it was rushed'")
+  - Quote 1-2 standout reviews that reveal the most insight
+  - If no reviews exist: "📝 No reviews this week. Writing brief reflections after metrics helps me coach you better."
   
   ## 🔬 Sub-Metric Analysis
   If "sub_metric_fields_weekly" contains data, analyze each metric's sub-fields:
-  - For integer fields: report total and daily average (e.g., "Total listening: 315min, avg 45min/day")
-  - For scale fields: report the weekly average score and trend (e.g., "Fluency avg: 3.2/5 — below target. Needs active practice")
-  - For boolean fields: report completion rate (e.g., "Grammar done: 5/7 days = 71%")
-  - For text notes: summarize any themes or patterns from the text values
-  - Identify the STRONGEST sub-metric (best performance) and WEAKEST (lowest or most missed)
-  - Give 1-2 actionable suggestions per metric based on the sub-field patterns
-  - If sub_metric_fields_weekly is empty or missing, write "No sub-field data logged this week — consider filling in details daily for richer insights."
+  - For integer fields: report total and daily average
+  - For scale fields: report the weekly average and flag if below target
+  - For boolean fields: report completion rate
+  - For text notes: summarize themes
+  - Identify STRONGEST and WEAKEST sub-metrics
   
   ## 📊 System Calibration
-  - **Difficulty Check**: Are any habits too easy (100% done) or too hard (<20% done)?
-  - **Balance Check**: Did we over-index on work vs recovery?
+  - **Difficulty Check**: Are any scale metrics consistently scoring max (too easy) or near-zero (too hard)?
+  - **Input Type Check**: For emoji_5 metrics — is the user always selecting 😐 (3)? That suggests disengagement.
+  - **Balance Check**: Are reviews mostly about one life area while others go unreviewed?
   
   ## 🚀 Strategy for Next Week
-  - Give 3 bullet points of TACTICAL advice for the upcoming week.
-  - Suggest ONE specific "Theme of the Week".
-  - If sub-metrics revealed a pattern (e.g., low fluency all week), tie it into the strategy.
+  - Give 3 bullet points of TACTICAL advice informed by reviews + scores
+  - If a user's review mentioned wanting to change something, address it directly
+  - Suggest ONE specific "Theme of the Week" that emerges from the data
+  - Connect strategy to emotional patterns found in reviews
   
   Format with clear headings, emoji, and bold text for readability. Keep it encouraging but analytical.
+  Treat user reviews as the MOST VALUABLE data — they reveal what numbers cannot.
   `
   
       const result = await model.generateContent(prompt)

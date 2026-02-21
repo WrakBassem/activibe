@@ -88,49 +88,78 @@ export async function GET(request: Request) {
           const tasks = data.today_tasks || []
           
           const dayName = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Africa/Tunis' })
+          const dayOfWeek = new Date().toLocaleDateString('en-US', { weekday: 'long', timeZone: 'Africa/Tunis' })
 
-          let msg = `🌅 *MORNING BRIEFING*\n📅 ${dayName}\n`
+          // Motivational openers rotating by day
+          const openers: Record<string, string> = {
+            'Monday': '🚀 New week, new chapter. Let\'s set the pace.',
+            'Tuesday': '⚡ Momentum is building. Keep pushing.',
+            'Wednesday': '🏔️ Midweek summit. Stay locked in.',
+            'Thursday': '🎯 The finish line is in sight. Execute.',
+            'Friday': '🔥 Close the week strong. No loose ends.',
+            'Saturday': '🧠 Strategic recovery day. Sharpen the saw.',
+            'Sunday': '🌱 Reset & recharge. Prepare for what\'s next.',
+          }
+          const opener = openers[dayOfWeek] || '💪 Another day, another chance to level up.'
 
-          // Yesterday Recap
+          let msg = `┌─────────────────────────┐\n`
+          msg += `  🌅 *MORNING BRIEFING*\n`
+          msg += `  📅 ${dayName}\n`
+          msg += `└─────────────────────────┘\n\n`
+          msg += `_${opener}_\n`
+
+          // Yesterday Recap (compact & insightful)
           if (data.y_habits_total > 0 || data.y_tasks_total > 0) {
-            msg += `\n📊 *Yesterday's Recap:*\n`
-            if (data.y_score) msg += `Score: ${Math.round(data.y_score)}/100 `
-            if (data.y_sleep) msg += `• Sleep: ${Number(data.y_sleep).toFixed(1)}h\n`
+            const yScore = data.y_score ? Math.round(data.y_score) : null
+            const yScoreEmoji = yScore ? (yScore >= 85 ? '🟢' : yScore >= 70 ? '🟡' : yScore >= 50 ? '🟠' : '🔴') : ''
+            msg += `\n📊 *Yesterday:*`
+            if (yScore) msg += ` ${yScoreEmoji} ${yScore}/100`
+            if (data.y_sleep) msg += ` • 🌙 ${Number(data.y_sleep).toFixed(1)}h`
+            msg += `\n`
             
             const hRate = data.y_habits_total > 0 ? Math.round((data.y_habits_done / data.y_habits_total) * 100) : 0
-            if (data.y_habits_total > 0) msg += `Habits: ${data.y_habits_done}/${data.y_habits_total} (${hRate}%)`
-            if (data.y_avg_rating) msg += ` ⭐ ${Number(data.y_avg_rating).toFixed(1)}`
-            msg += '\n'
+            if (data.y_habits_total > 0) {
+              const bar = hRate >= 80 ? '█████' : hRate >= 60 ? '████░' : hRate >= 40 ? '███░░' : hRate >= 20 ? '██░░░' : '█░░░░'
+              msg += `${bar} Habits: ${data.y_habits_done}/${data.y_habits_total} (${hRate}%)`
+              if (data.y_avg_rating) msg += ` ⭐${Number(data.y_avg_rating).toFixed(1)}`
+              msg += `\n`
+            }
           }
 
           // Today's Habits
           if (habits.length > 0) {
-            msg += `\n✅ *Habits (${habits.length}):*\n`
+            msg += `\n🔄 *Today's Rituals (${habits.length}):*\n`
             habits.forEach((h: any) => {
               const meta = [fmtTime(h.target_time), h.duration ? `${h.duration}m` : ''].filter(Boolean).join(' • ')
               msg += `  ${priorityIcon(h.priority)} ${h.title}`
-              if (meta) msg += ` — ${meta}`
-              msg += '\n'
+              if (meta) msg += ` _${meta}_`
+              msg += `\n`
             })
           }
 
           // Today's Tasks
           if (tasks.length > 0) {
-            msg += `\n📋 *Tasks (${tasks.length}):*\n`
+            msg += `\n📋 *Key Tasks (${tasks.length}):*\n`
             tasks.forEach((t: any) => {
               const meta = [fmtTime(t.target_time), t.duration ? `${t.duration}m` : ''].filter(Boolean).join(' • ')
               msg += `  ${priorityIcon(t.priority)} ${t.title}`
-              if (meta) msg += ` — ${meta}`
-              msg += '\n'
+              if (meta) msg += ` _${meta}_`
+              msg += `\n`
             })
           }
 
           const totalMinutes = [...habits, ...tasks].reduce((sum: number, i: any) => sum + (Number(i.duration) || 0), 0)
           if (totalMinutes > 0) {
-            msg += `\n⏱ *Est. Focus Load:* ${Math.floor(totalMinutes / 60)}h ${totalMinutes % 60}m\n`
+            const hrs = Math.floor(totalMinutes / 60)
+            const mins = totalMinutes % 60
+            msg += `\n⏱ *Focus Load:* ${hrs > 0 ? `${hrs}h ` : ''}${mins}m`
+            if (totalMinutes > 300) msg += ` ⚠️ Heavy day — protect your energy`
+            else if (totalMinutes < 60) msg += ` 💡 Light load — great day for deep work`
+            msg += `\n`
           }
 
-          msg += `\n🔗 Open Daily Log: ${process.env.NEXT_PUBLIC_APP_URL || 'https://activibe-silk.vercel.app'}/daily`
+          msg += `\n━━━━━━━━━━━━━━━━━━━━━━━━━\n`
+          msg += `📝 [Log your day](${process.env.NEXT_PUBLIC_APP_URL || 'https://activibe-silk.vercel.app'}/daily) | 💬 [Ask Coach](${process.env.NEXT_PUBLIC_APP_URL || 'https://activibe-silk.vercel.app'}/coach)`
 
           await sendTelegramMessage(msg.trim(), chatId)
           results.push({ userId, status: 'sent', phase: 'morning' })
@@ -149,8 +178,32 @@ export async function GET(request: Request) {
           `
           
           if (Number(checkRows[0].count) === 0) {
-            // Send Reminder
-            const reminder = `⚠️ *You haven't logged today!*\n\n📝 Don't break the chain — log your day now:\n🔗 ${process.env.NEXT_PUBLIC_APP_URL || 'https://activibe-silk.vercel.app'}/daily\n\n_Consistency is the compound interest of self-improvement._`
+            // Creative rotating reminders
+            const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://activibe-silk.vercel.app'
+            const hour = new Date().getHours()
+            
+            // Check logging streak for context
+            const streakRows = await sql`
+              SELECT COUNT(*) as streak FROM (
+                SELECT log_date, log_date - ROW_NUMBER() OVER (ORDER BY log_date)::INT * INTERVAL '1 day' as grp
+                FROM daily_logs WHERE user_id = ${userId} ORDER BY log_date DESC
+              ) sub WHERE grp = (
+                SELECT log_date - ROW_NUMBER() OVER (ORDER BY log_date)::INT * INTERVAL '1 day'
+                FROM daily_logs WHERE log_date = (NOW() AT TIME ZONE 'Africa/Tunis')::DATE - 1 AND user_id = ${userId} LIMIT 1
+              )
+            `
+            const currentStreak = Number(streakRows[0]?.streak || 0)
+            
+            const reminders = [
+              `🔔 *Day Not Yet Captured*\n\nYour data tells a story that numbers alone can't. Every unlogged day is a missing chapter.\n\n${currentStreak > 0 ? `🔥 You have a *${currentStreak}-day streak* on the line. Don't let it go.\n\n` : ''}📝 _5 minutes now saves a week of guessing later._\n\n[📊 Log Now](${appUrl}/daily)`,
+              `⏳ *The Clock Is Ticking*\n\nToday's insights fade fast. The details you remember now will be gone by tomorrow.\n\n${currentStreak > 0 ? `📈 *${currentStreak} consecutive days* of self-awareness. Keep building.\n\n` : ''}💡 _What gets measured gets managed. What gets tracked gets transformed._\n\n[✍️ Capture Today](${appUrl}/daily)`,
+              `🎯 *Quick Reminder*\n\nYour future self will thank you for logging today. Every data point is fuel for smarter coaching.\n\n${currentStreak > 0 ? `🏆 Current streak: *${currentStreak} days*. Tomorrow's report depends on tonight's input.\n\n` : ''}⚡ _The gap between who you are and who you want to be is filled with consistency._\n\n[📋 Open Daily Log](${appUrl}/daily)`,
+              `🌙 *Evening Check-In*\n\nBefore the day ends — how did you show up today? Your metrics and reviews power the AI insights you rely on.\n\n${currentStreak > 0 ? `🔗 *${currentStreak}-day chain* — one log away from making it ${currentStreak + 1}.\n\n` : ''}🧠 _Reflection is the bridge between experience and wisdom._\n\n[📝 Reflect & Log](${appUrl}/daily)`,
+            ]
+            
+            const reminderIdx = new Date().getDate() % reminders.length
+            const reminder = reminders[reminderIdx]
+
             await sendTelegramMessage(reminder, chatId)
             results.push({ userId, status: 'reminder_sent', phase: 'evening' })
             continue; // Skip the rest for this user
@@ -269,6 +322,29 @@ export async function GET(request: Request) {
 
           // 2b. Fetch sub-metric field values for today
           const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Tunis' }) // YYYY-MM-DD
+
+          // 2c. Fetch reviews and score values from daily_entries for today
+          const dailyEntryRows = await sql`
+              SELECT 
+                  de.metric_id, m.name, m.input_type, m.max_points,
+                  de.completed, de.score_awarded, de.score_value, de.review,
+                  CASE WHEN s.current_streak IS NULL THEN 0 ELSE s.current_streak END as streak
+              FROM daily_entries de
+              JOIN metrics m ON de.metric_id = m.id
+              LEFT JOIN streaks s ON m.id = s.metric_id AND s.user_id = ${userId}
+              WHERE de.user_id = ${userId} AND de.date = ${todayStr}
+          `
+          const metricItems = dailyEntryRows.map((i: any) => ({
+              name: i.name,
+              completed: i.completed,
+              score_awarded: i.score_awarded,
+              max: i.max_points,
+              streak: i.streak,
+              input_type: i.input_type || 'boolean',
+              score_value: i.score_value,
+              review: i.review || null,
+          }))
+
           const subFieldRows = await sql`
               SELECT 
                   m.name as metric_name,
@@ -297,8 +373,8 @@ export async function GET(request: Request) {
               })
           }
 
-          // 3. AI Analysis (with sub-metric data)
-          const aiData = { ...reportData, sub_metric_fields: subFieldsByMetric }
+          // 3. AI Analysis (with sub-metric data + reviews + score values)
+          const aiData = { ...reportData, items: metricItems, sub_metric_fields: subFieldsByMetric }
           const aiAnalysis = await generateDailyAnalysis(aiData)
 
           // 4. Format Message
@@ -306,11 +382,15 @@ export async function GET(request: Request) {
           const sleep = Number(reportData.sleep_hours) || 0
           const mood = Number(reportData.mood) || 0
           
-          // Basic formatting helpers
+          // Formatting helpers
           const arrow = (cur: number, avg: number) => {
             const diff = cur - avg
             if (Math.abs(diff) < 0.5) return '➡️'
             return diff > 0 ? '📈' : '📉'
+          }
+          const scoreBar = (pct: number) => {
+            const filled = Math.round(pct / 10)
+            return '▓'.repeat(Math.min(filled, 10)) + '░'.repeat(Math.max(10 - filled, 0))
           }
 
           let scoreEmoji = '🔴'
@@ -328,15 +408,61 @@ export async function GET(request: Request) {
 
           const dayName = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Africa/Tunis' })
           
-          let msg = `🌙 *DAILY INTELLIGENCE REPORT*\n📅 ${dayName}\n\n`
-          msg += `${scoreEmoji} *Score: ${score}/100* — ${scoreLabel}\n🏷 *${mode}*\n\n`
-          
-          msg += `━━━ Biometrics ━━━\n`
-          msg += `🌙 Sleep: ${sleep.toFixed(1)}h (Q: ${reportData.sleep_quality}/5) ${arrow(sleep, Number(reportData.sleep_7day_avg))}\n`
-          msg += `🎯 Focus: ${reportData.focus_minutes}m ${arrow(Number(reportData.focus_minutes), Number(reportData.focus_7day_avg))}\n`
-          msg += `😊 Mood: ${mood.toFixed(1)} ${arrow(mood, Number(reportData.mood_7day_avg))}\n`
-          msg += `🏃 Activity: ${reportData.activity_level}\n`
-          msg += `🍎 Food: ${reportData.food_quality}/5\n\n`
+          let msg = `┌─────────────────────────┐\n`
+          msg += `  🌙 *DAILY INTELLIGENCE REPORT*\n`
+          msg += `  📅 ${dayName}\n`
+          msg += `└─────────────────────────┘\n\n`
+
+          // Score hero section
+          msg += `${scoreEmoji} *${score}/100* — ${scoreLabel}\n`
+          msg += `${scoreBar(score)} ${mode}\n\n`
+
+          // Biometrics block
+          msg += `━━━ 🔬 Biometrics ━━━\n`
+          msg += `🌙 Sleep: *${sleep.toFixed(1)}h* (Q${reportData.sleep_quality}/5) ${arrow(sleep, Number(reportData.sleep_7day_avg))}\n`
+          msg += `🎯 Focus: *${reportData.focus_minutes}m* ${arrow(Number(reportData.focus_minutes), Number(reportData.focus_7day_avg))}\n`
+          msg += `😊 Mood: *${mood.toFixed(1)}* ${arrow(mood, Number(reportData.mood_7day_avg))}\n`
+          msg += `🏃 Activity: ${reportData.activity_level} • 🍎 Food: ${reportData.food_quality}/5\n\n`
+
+          // Metric scores breakdown (input-type aware)
+          if (metricItems.length > 0) {
+            msg += `━━━ 📊 Metrics ━━━\n`
+            for (const item of metricItems) {
+              const pct = item.max > 0 ? Math.round((item.score_awarded / item.max) * 100) : 0
+              let statusIcon = item.completed ? '✅' : '❌'
+              let scoreStr = `${item.score_awarded}/${item.max}pt`
+              
+              if (item.input_type === 'emoji_5' && item.score_value != null) {
+                const emojis = ['', '😞', '😕', '😐', '🙂', '😄']
+                statusIcon = emojis[item.score_value] || '😐'
+                scoreStr = `${item.score_value}/5 → ${item.score_awarded}pt`
+              } else if (item.input_type === 'scale_0_5' && item.score_value != null) {
+                statusIcon = pct >= 80 ? '💪' : pct >= 50 ? '🔶' : '⚠️'
+                scoreStr = `${item.score_value}/5 → ${item.score_awarded}pt`
+              } else if (item.input_type === 'scale_0_10' && item.score_value != null) {
+                statusIcon = pct >= 80 ? '💪' : pct >= 50 ? '🔶' : '⚠️'
+                scoreStr = `${item.score_value}/10 → ${item.score_awarded}pt`
+              }
+              
+              msg += `${statusIcon} ${item.name}: *${scoreStr}*`
+              if (item.streak > 0) msg += ` 🔥${item.streak}`
+              msg += `\n`
+            }
+            
+            // Review highlights
+            const reviewedItems = metricItems.filter((i: any) => i.review)
+            if (reviewedItems.length > 0) {
+              msg += `\n━━━ 📝 Your Reviews ━━━\n`
+              for (const item of reviewedItems.slice(0, 3)) {
+                const shortReview = item.review.length > 80 ? item.review.substring(0, 77) + '...' : item.review
+                msg += `💬 *${item.name}:* _"${shortReview}"_\n`
+              }
+              if (reviewedItems.length > 3) {
+                msg += `_...and ${reviewedItems.length - 3} more reviews_\n`
+              }
+            }
+            msg += `\n`
+          }
 
           // AI Content
           msg += `━━━ 🤖 AI Coach ━━━\n${aiAnalysis}`

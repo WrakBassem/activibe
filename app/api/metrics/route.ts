@@ -58,7 +58,8 @@ export async function POST(request: Request) {
         rule_description, 
         max_points, 
         difficulty_level,
-        active
+        active,
+        input_type
       )
       VALUES (
         ${body.axis_id}, 
@@ -66,7 +67,8 @@ export async function POST(request: Request) {
         ${body.rule_description || null}, 
         ${body.max_points}, 
         ${body.difficulty_level || 3},
-        ${body.active !== false}
+        ${body.active !== false},
+        ${body.input_type || 'boolean'}
       )
       RETURNING *
     `
@@ -106,6 +108,7 @@ export async function PUT(request: Request) {
         if (body.max_points !== undefined) updateData.max_points = body.max_points;
         if (body.difficulty_level !== undefined) updateData.difficulty_level = body.difficulty_level;
         if (body.active !== undefined) updateData.active = body.active;
+        if (body.input_type !== undefined) updateData.input_type = body.input_type;
 
         if (Object.keys(updateData).length === 0) {
             return NextResponse.json({ error: 'No fields to update' }, { status: 400 });

@@ -13,6 +13,7 @@ type Metric = {
   axis_name: string;
   max_points: number;
   difficulty_level: number;
+  input_type: 'boolean' | 'emoji_5' | 'scale_0_5' | 'scale_0_10';
 };
 
 type MetricField = {
@@ -37,6 +38,8 @@ type DailyEntry = {
   completed: boolean;
   score_awarded: number;
   time_spent_minutes?: number;
+  review?: string;
+  score_value?: number | null;
 };
 
 type DailySummary = {
@@ -44,6 +47,9 @@ type DailySummary = {
   total_score: number;
   mode: string;
 };
+
+const EMOJIS = ['😞', '😕', '😐', '🙂', '😄'];
+const EMOJI_LABELS = ['Bad', 'Poor', 'Okay', 'Good', 'Great'];
 
 export default function DailyLogPage() {
   const router = useRouter();
@@ -103,7 +109,9 @@ export default function DailyLogPage() {
                         metric_id: e.metric_id,
                         completed: e.completed,
                         score_awarded: e.score_awarded,
-                        time_spent_minutes: e.time_spent_minutes
+                        time_spent_minutes: e.time_spent_minutes,
+                        review: e.review || '',
+                        score_value: e.score_value ?? null,
                     };
                 });
             }
@@ -162,6 +170,28 @@ export default function DailyLogPage() {
     setFieldValues(prev => ({ ...prev, [fieldId]: fv }));
   };
 
+  const handleScoreValue = (metricId: string, value: number) => {
+    setEntries(prev => {
+      const current = prev[metricId] || { metric_id: metricId, completed: false, score_awarded: 0 };
+      // If tapping the same value, deselect (set to 0)
+      const newValue = current.score_value === value ? 0 : value;
+      return {
+        ...prev,
+        [metricId]: { ...current, score_value: newValue, completed: newValue > 0 }
+      };
+    });
+  };
+
+  const handleReview = (metricId: string, text: string) => {
+    setEntries(prev => {
+      const current = prev[metricId] || { metric_id: metricId, completed: false, score_awarded: 0 };
+      return {
+        ...prev,
+        [metricId]: { ...current, review: text }
+      };
+    });
+  };
+
   const handleSubmit = async () => {
       try {
           setSubmitting(true);
@@ -170,7 +200,9 @@ export default function DailyLogPage() {
               metric_inputs: Object.values(entries).map(e => ({
                   metric_id: e.metric_id,
                   completed: e.completed,
-                  time_spent_minutes: e.time_spent_minutes
+                  time_spent_minutes: e.time_spent_minutes,
+                  review: e.review || null,
+                  score_value: e.score_value ?? null,
               })),
               field_values: Object.values(fieldValues),
           };
@@ -230,33 +262,141 @@ export default function DailyLogPage() {
                     <h3 className="axis-header">{axisName}</h3>
                     <div className="metrics-grid">
                         {axisMetrics.map(metric => {
-                            const entry = entries[metric.id] || { completed: false };
+                            const entry = entries[metric.id] || { completed: false, score_value: null };
                             const fields = metricFields[metric.id] || [];
                             const isExpanded = expandedFields[metric.id];
+                            const inputType = metric.input_type || 'boolean';
+                            const scoreVal = entry.score_value ?? 0;
+                            const isActive = inputType === 'boolean' ? entry.completed : (scoreVal > 0);
                             return (
-                                <div key={metric.id} style={{ borderRadius: '12px', overflow: 'hidden', marginBottom: '6px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)' }}>
-                                  {/* Metric Toggle Row */}
-                                  <div className={`metric-card ${entry.completed ? 'completed' : ''}`}
-                                    style={{ margin: 0, borderRadius: 0, border: 'none', background: 'transparent' }}
-                                    onClick={() => handleToggle(metric.id)}>
-                                      <div className="metric-check">
-                                          <div className={`checkbox ${entry.completed ? 'checked' : ''}`}>
-                                              {entry.completed && "✓"}
-                                          </div>
+                                <div key={metric.id} style={{ borderRadius: '12px', overflow: 'hidden', marginBottom: '6px', background: 'rgba(255,255,255,0.04)', border: `1px solid ${isActive ? 'rgba(34,197,94,0.4)' : 'rgba(255,255,255,0.07)'}`, transition: 'border-color 0.2s' }}>
+                                  {/* Metric Input Row */}
+                                  <div style={{
+                                    padding: '12px 14px',
+                                    background: isActive ? 'rgba(34,197,94,0.08)' : 'transparent',
+                                    transition: 'background 0.2s',
+                                  }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                                      <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                        <span style={{ fontWeight: 600, fontSize: '0.95rem' }}>{metric.name}</span>
+                                        <span style={{ fontSize: '0.7rem', color: '#6b7280' }}>{metric.max_points} pts</span>
                                       </div>
-                                      <div className="metric-info">
-                                          <span className="metric-name">{metric.name}</span>
-                                          <span className="metric-pts">{metric.max_points} pts</span>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                        {fields.length > 0 && (
+                                          <button
+                                            onClick={() => setExpandedFields(prev => ({ ...prev, [metric.id]: !prev[metric.id] }))}
+                                            style={{ background: 'rgba(99,102,241,0.2)', color: '#a5b4fc', border: 'none', borderRadius: '6px', padding: '3px 8px', fontSize: '11px', cursor: 'pointer', flexShrink: 0 }}
+                                          >
+                                            {isExpanded ? '▲' : '▼'} {fields.length}
+                                          </button>
+                                        )}
                                       </div>
-                                      {fields.length > 0 && (
-                                        <button
-                                          onClick={e => { e.stopPropagation(); setExpandedFields(prev => ({ ...prev, [metric.id]: !prev[metric.id] })); }}
-                                          style={{ marginLeft: 'auto', background: 'rgba(99,102,241,0.2)', color: '#a5b4fc', border: 'none', borderRadius: '6px', padding: '3px 8px', fontSize: '11px', cursor: 'pointer', flexShrink: 0 }}
-                                        >
-                                          {isExpanded ? '▲' : '▼'} {fields.length} field{fields.length !== 1 ? 's' : ''}
-                                        </button>
-                                      )}
+                                    </div>
+
+                                    {/* === INPUT WIDGET (type-specific) === */}
+                                    {inputType === 'boolean' && (
+                                      <div
+                                        onClick={() => handleToggle(metric.id)}
+                                        style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', padding: '4px 0' }}
+                                      >
+                                        <div style={{
+                                          width: '28px', height: '28px', borderRadius: '50%',
+                                          border: `2px solid ${entry.completed ? '#22c55e' : '#555'}`,
+                                          background: entry.completed ? '#22c55e' : 'transparent',
+                                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                          color: 'white', fontSize: '14px', fontWeight: 700, transition: 'all 0.2s',
+                                        }}>
+                                          {entry.completed && '✓'}
+                                        </div>
+                                        <span style={{ fontSize: '0.85rem', color: entry.completed ? '#86efac' : '#9ca3af' }}>
+                                          {entry.completed ? 'Completed' : 'Not done'}
+                                        </span>
+                                      </div>
+                                    )}
+
+                                    {inputType === 'emoji_5' && (
+                                      <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
+                                        {EMOJIS.map((emoji, i) => {
+                                          const val = i + 1;
+                                          const selected = scoreVal === val;
+                                          return (
+                                            <button key={val}
+                                              onClick={() => handleScoreValue(metric.id, val)}
+                                              title={EMOJI_LABELS[i]}
+                                              style={{
+                                                fontSize: '1.5rem', padding: '6px 8px', borderRadius: '10px', border: 'none', cursor: 'pointer',
+                                                background: selected ? 'rgba(99,102,241,0.3)' : 'rgba(255,255,255,0.06)',
+                                                transform: selected ? 'scale(1.2)' : 'scale(1)',
+                                                transition: 'all 0.15s',
+                                                filter: selected ? 'none' : 'grayscale(0.6)',
+                                              }}
+                                            >{emoji}</button>
+                                          );
+                                        })}
+                                        {scoreVal > 0 && <span style={{ fontSize: '11px', color: '#a5b4fc', marginLeft: '4px' }}>{EMOJI_LABELS[scoreVal - 1]}</span>}
+                                      </div>
+                                    )}
+
+                                    {inputType === 'scale_0_5' && (
+                                      <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                                        {[0,1,2,3,4,5].map(n => (
+                                          <button key={n}
+                                            onClick={() => handleScoreValue(metric.id, n)}
+                                            style={{
+                                              width: '36px', height: '36px', borderRadius: '50%', border: 'none', cursor: 'pointer',
+                                              fontWeight: 700, fontSize: '14px',
+                                              background: scoreVal === n && n > 0 ? '#6366f1' : scoreVal === n && n === 0 ? '#ef4444' : 'rgba(255,255,255,0.08)',
+                                              color: scoreVal === n ? 'white' : '#9ca3af',
+                                              transition: 'all 0.15s',
+                                              transform: scoreVal === n ? 'scale(1.15)' : 'scale(1)',
+                                            }}
+                                          >{n}</button>
+                                        ))}
+                                        <span style={{ fontSize: '11px', color: '#6b7280', marginLeft: '4px' }}>/5</span>
+                                      </div>
+                                    )}
+
+                                    {inputType === 'scale_0_10' && (
+                                      <div>
+                                        <div style={{ display: 'flex', gap: '4px', alignItems: 'center', flexWrap: 'wrap' }}>
+                                          {[0,1,2,3,4,5,6,7,8,9,10].map(n => (
+                                            <button key={n}
+                                              onClick={() => handleScoreValue(metric.id, n)}
+                                              style={{
+                                                width: '30px', height: '30px', borderRadius: '8px', border: 'none', cursor: 'pointer',
+                                                fontWeight: 600, fontSize: '12px',
+                                                background: scoreVal === n && n > 0
+                                                  ? `hsl(${n * 12}, 70%, 50%)`
+                                                  : scoreVal === n && n === 0 ? '#ef4444' 
+                                                  : 'rgba(255,255,255,0.06)',
+                                                color: scoreVal === n ? 'white' : '#9ca3af',
+                                                transition: 'all 0.15s',
+                                                transform: scoreVal === n ? 'scale(1.15)' : 'scale(1)',
+                                              }}
+                                            >{n}</button>
+                                          ))}
+                                        </div>
+                                        <div style={{ fontSize: '11px', color: '#6b7280', marginTop: '4px' }}>Score: {scoreVal}/10</div>
+                                      </div>
+                                    )}
+
+                                    {/* === REVIEW TEXTAREA === */}
+                                    <div style={{ marginTop: '10px' }}>
+                                      <textarea
+                                        value={entry.review || ''}
+                                        onChange={e => handleReview(metric.id, e.target.value)}
+                                        placeholder="Write your review... (optional)"
+                                        rows={2}
+                                        style={{
+                                          width: '100%', resize: 'vertical',
+                                          background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)',
+                                          borderRadius: '8px', padding: '8px 10px', color: '#d1d5db', fontSize: '13px',
+                                          fontFamily: 'inherit',
+                                        }}
+                                      />
+                                    </div>
                                   </div>
+
                                   {/* Fields Panel */}
                                   {fields.length > 0 && isExpanded && (
                                     <div style={{ background: 'rgba(0,0,0,0.25)', padding: '12px 14px', display: 'grid', gap: '10px' }}>
