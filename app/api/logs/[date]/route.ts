@@ -6,7 +6,7 @@ interface RouteParams {
   params: Promise<{ date: string }>
 }
 
-// GET /api/logs/[date] - Fetch single log by date
+// GET /api/logs/[date] - Fetch single day's score and entries (new data model)
 export async function GET(request: Request, { params }: RouteParams) {
   try {
     const userId = await getAuthUserId()
@@ -16,46 +16,50 @@ export async function GET(request: Request, { params }: RouteParams) {
 
     const { date } = await params
 
-    const logs = await sql`
-      SELECT 
-        d.id,
-        d.log_date,
-        d.sleep_hours,
-        d.sleep_quality,
-        d.food_quality,
-        d.activity_level,
-        d.focus_minutes,
-        d.habits_score,
-        d.tasks_done,
-        d.mood,
-        d.created_at,
-        s.final_score
-      FROM daily_logs d
-      LEFT JOIN daily_final_score s ON d.log_date = s.log_date AND d.user_id = s.user_id
-      WHERE d.log_date = ${date} 
-        AND d.user_id = ${userId}
+    // Fetch score from daily_scores
+    const scores = await sql`
+      SELECT id, date as log_date, total_score as final_score, mode,
+             burnout_flag, procrastination_flag, created_at
+      FROM daily_scores
+      WHERE date = ${date} AND user_id = ${userId}
     `
 
-    if (logs.length === 0) {
+    if (scores.length === 0) {
       return NextResponse.json(
-        { error: 'Log not found for this date' },
+        { error: 'No data found for this date' },
         { status: 404 }
       )
     }
 
-    // Fetch items separately
-    const items = await sql`
-      SELECT item_id, completed, rating 
-      FROM daily_item_logs 
-      WHERE log_date = ${date}
-        AND user_id = ${userId}
+    // Fetch metric entries from daily_entries
+    const entries = await sql`
+      SELECT de.metric_id, de.completed, de.score_awarded, de.score_value, 
+             de.review, de.time_spent_minutes,
+             m.name as metric_name, m.input_type, m.max_points,
+             a.name as axis_name
+      FROM daily_entries de
+      JOIN metrics m ON de.metric_id = m.id
+      JOIN axes a ON m.axis_id = a.id
+      WHERE de.date = ${date} AND de.user_id = ${userId}
+      ORDER BY a.name, m.name
+    `
+
+    // Fetch sub-field entries
+    const fieldEntries = await sql`
+      SELECT dfe.metric_id, mf.label as field_label, mf.name as field_name,
+             mf.field_type, dfe.value_int, dfe.value_bool, dfe.value_text
+      FROM daily_field_entries dfe
+      JOIN metric_fields mf ON dfe.field_id = mf.id
+      WHERE dfe.date = ${date} AND dfe.user_id = ${userId}
+      ORDER BY mf.sort_order
     `
 
     return NextResponse.json({
       success: true,
       data: {
-        ...logs[0],
-        items: items
+        ...scores[0],
+        entries,
+        field_entries: fieldEntries,
       }
     })
   } catch (error: any) {
@@ -67,74 +71,15 @@ export async function GET(request: Request, { params }: RouteParams) {
   }
 }
 
-// PUT /api/logs/[date] - Update existing log
+// PUT /api/logs/[date] - Deprecated, use POST /api/daily
 export async function PUT(request: Request, { params }: RouteParams) {
-  try {
-    const userId = await getAuthUserId()
-    if (!userId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-
-    const { date } = await params
-    const body = await request.json()
-
-    // Validate ranges
-    if (body.sleep_quality !== undefined && (body.sleep_quality < 1 || body.sleep_quality > 5)) {
-      return NextResponse.json({ error: 'sleep_quality must be 1-5' }, { status: 400 })
-    }
-    if (body.food_quality !== undefined && (body.food_quality < 1 || body.food_quality > 5)) {
-      return NextResponse.json({ error: 'food_quality must be 1-5' }, { status: 400 })
-    }
-    if (body.activity_level !== undefined && (body.activity_level < 0 || body.activity_level > 5)) {
-      return NextResponse.json({ error: 'activity_level must be 0-5' }, { status: 400 })
-    }
-    if (body.habits_score !== undefined && (body.habits_score < 0 || body.habits_score > 5)) {
-      return NextResponse.json({ error: 'habits_score must be 0-5' }, { status: 400 })
-    }
-    if (body.tasks_done !== undefined && (body.tasks_done < 0 || body.tasks_done > 5)) {
-      return NextResponse.json({ error: 'tasks_done must be 0-5' }, { status: 400 })
-    }
-    if (body.mood !== undefined && (body.mood < -2 || body.mood > 2)) {
-      return NextResponse.json({ error: 'mood must be -2 to 2' }, { status: 400 })
-    }
-
-    const result = await sql`
-      UPDATE daily_logs SET
-        sleep_hours = COALESCE(${body.sleep_hours ?? null}, sleep_hours),
-        sleep_quality = COALESCE(${body.sleep_quality ?? null}, sleep_quality),
-        food_quality = COALESCE(${body.food_quality ?? null}, food_quality),
-        activity_level = COALESCE(${body.activity_level ?? null}, activity_level),
-        focus_minutes = COALESCE(${body.focus_minutes ?? null}, focus_minutes),
-        habits_score = COALESCE(${body.habits_score ?? null}, habits_score),
-        tasks_done = COALESCE(${body.tasks_done ?? null}, tasks_done),
-        mood = COALESCE(${body.mood ?? null}, mood)
-      WHERE log_date = ${date}
-        AND user_id = ${userId}
-      RETURNING *
-    `
-
-    if (result.length === 0) {
-      return NextResponse.json(
-        { error: 'Log not found for this date' },
-        { status: 404 }
-      )
-    }
-
-    return NextResponse.json({
-      success: true,
-      message: 'Log updated',
-      data: result[0]
-    })
-  } catch (error: any) {
-    console.error('[PUT /api/logs/date] Error:', error)
-    return NextResponse.json(
-      { error: 'Failed to update log', details: error.message },
-      { status: 500 }
-    )
-  }
+  return NextResponse.json({ 
+    error: 'This endpoint is deprecated. Use POST /api/daily instead.',
+    redirect: '/api/daily'
+  }, { status: 301 })
 }
 
-// DELETE /api/logs/[date] - Delete a log
+// DELETE /api/logs/[date] - Delete a day's score and entries
 export async function DELETE(request: Request, { params }: RouteParams) {
   try {
     const userId = await getAuthUserId()
@@ -144,23 +89,25 @@ export async function DELETE(request: Request, { params }: RouteParams) {
 
     const { date } = await params
 
+    // Delete entries first (FK constraint), then score
+    await sql`DELETE FROM daily_field_entries WHERE date = ${date} AND user_id = ${userId}`
+    await sql`DELETE FROM daily_entries WHERE date = ${date} AND user_id = ${userId}`
     const result = await sql`
-      DELETE FROM daily_logs
-      WHERE log_date = ${date}
-        AND user_id = ${userId}
-      RETURNING id, log_date
+      DELETE FROM daily_scores
+      WHERE date = ${date} AND user_id = ${userId}
+      RETURNING id, date as log_date
     `
 
     if (result.length === 0) {
       return NextResponse.json(
-        { error: 'Log not found for this date' },
+        { error: 'No data found for this date' },
         { status: 404 }
       )
     }
 
     return NextResponse.json({
       success: true,
-      message: 'Log deleted',
+      message: 'Daily data deleted',
       data: result[0]
     })
   } catch (error: any) {

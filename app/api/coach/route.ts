@@ -29,13 +29,13 @@ export async function POST(request: Request) {
     `
     const profile = profileRows[0] || null
 
-    // 2. Load recent logs (last 7 days)
+    // 2. Load recent scores (last 7 days)
     const recentLogs = await sql`
-      SELECT d.*, s.final_score
-      FROM daily_logs d
-      LEFT JOIN daily_final_score s ON d.log_date = s.log_date AND d.user_id = s.user_id
-        WHERE d.user_id = ${userId}
-      ORDER BY d.log_date DESC
+      SELECT ds.date as log_date, ds.total_score as final_score, ds.mode,
+             ds.burnout_flag, ds.procrastination_flag
+      FROM daily_scores ds
+      WHERE ds.user_id = ${userId}
+      ORDER BY ds.date DESC
       LIMIT 7
     `
 

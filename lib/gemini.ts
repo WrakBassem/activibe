@@ -45,7 +45,11 @@ export function buildCoachSystemPrompt(profile: any, recentLogs: any[], goals: a
 
   const logsStr = recentLogs?.length
     ? recentLogs.map(l => {
-        return `${l.log_date}: Score=${l.final_score || 'N/A'}, Sleep=${l.sleep_hours}h(Q${l.sleep_quality}), Food=Q${l.food_quality}, Activity=${l.activity_level}, Focus=${l.focus_minutes}min, Habits=${l.habits_score}/5, Tasks=${l.tasks_done}, Mood=${l.mood}`
+        let entry = `${l.log_date}: Score=${l.final_score || 'N/A'}`
+        if (l.mode) entry += `, Mode=${l.mode}`
+        if (l.burnout_flag) entry += ` ⚠️BURNOUT`
+        if (l.procrastination_flag) entry += ` ⚠️SLUMP`
+        return entry
       }).join('\n')
     : 'No recent logs'
 
