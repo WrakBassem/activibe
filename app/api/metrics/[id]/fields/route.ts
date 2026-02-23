@@ -37,7 +37,7 @@ export async function POST(
 
     const { id } = await params
     const body = await request.json()
-    const { name, label, field_type, sort_order } = body
+    const { name, label, field_type, sort_order, start_date, end_date, duration, hour, is_custom_date } = body
 
     if (!name || !field_type) {
       return NextResponse.json({ error: 'name and field_type are required' }, { status: 400 })
@@ -49,8 +49,14 @@ export async function POST(
     }
 
     const created = await sql`
-      INSERT INTO metric_fields (metric_id, name, label, field_type, sort_order)
-      VALUES (${id}, ${name}, ${label || name}, ${field_type}, ${sort_order ?? 0})
+      INSERT INTO metric_fields (
+        metric_id, name, label, field_type, sort_order, 
+        start_date, end_date, duration, hour, is_custom_date
+      )
+      VALUES (
+        ${id}, ${name}, ${label || name}, ${field_type}, ${sort_order ?? 0},
+        ${start_date || null}, ${end_date || null}, ${duration || null}, ${hour || null}, ${is_custom_date || false}
+      )
       RETURNING *
     `
     return NextResponse.json({ success: true, data: created[0] }, { status: 201 })
@@ -80,6 +86,11 @@ export async function PUT(
     if (updates.field_type !== undefined) allowed.field_type = updates.field_type
     if (updates.active !== undefined) allowed.active = updates.active
     if (updates.sort_order !== undefined) allowed.sort_order = updates.sort_order
+    if (updates.start_date !== undefined) allowed.start_date = updates.start_date
+    if (updates.end_date !== undefined) allowed.end_date = updates.end_date
+    if (updates.duration !== undefined) allowed.duration = updates.duration
+    if (updates.hour !== undefined) allowed.hour = updates.hour
+    if (updates.is_custom_date !== undefined) allowed.is_custom_date = updates.is_custom_date
 
     if (Object.keys(allowed).length === 0) {
       return NextResponse.json({ error: 'No fields to update' }, { status: 400 })

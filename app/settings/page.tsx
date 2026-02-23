@@ -22,6 +22,11 @@ type Metric = {
   difficulty_level: number;
   active: boolean;
   input_type: 'boolean' | 'emoji_5' | 'scale_0_5' | 'scale_0_10';
+  start_date?: string;
+  end_date?: string;
+  duration?: number;
+  hour?: string;
+  is_custom_date?: boolean;
 };
 
 const INPUT_TYPE_LABELS: Record<string, string> = {
@@ -39,6 +44,11 @@ type MetricField = {
   field_type: 'int' | 'boolean' | 'scale_0_5' | 'text';
   active: boolean;
   sort_order: number;
+  start_date?: string;
+  end_date?: string;
+  duration?: number;
+  hour?: string;
+  is_custom_date?: boolean;
 };
 
 type Cycle = {
@@ -155,7 +165,10 @@ export default function SettingsPage() {
   const [fieldModalOpen, setFieldModalOpen] = useState(false);
   const [fieldModalMetricId, setFieldModalMetricId] = useState<string | null>(null);
   const [editingField, setEditingField] = useState<MetricField | null>(null);
-  const [fieldForm, setFieldForm] = useState({ name: '', label: '', field_type: 'int' as MetricField['field_type'] });
+  const [fieldForm, setFieldForm] = useState({ 
+      name: '', label: '', field_type: 'int' as MetricField['field_type'],
+      start_date: '', end_date: '', duration: '', hour: '', is_custom_date: false
+  });
 
   // Cycle Form State
   const [cycleWeights, setCycleWeights] = useState<Record<string, number>>({});
@@ -216,7 +229,16 @@ export default function SettingsPage() {
   const openFieldModal = (metricId: string, field?: MetricField) => {
     setFieldModalMetricId(metricId);
     setEditingField(field || null);
-    setFieldForm(field ? { name: field.name, label: field.label, field_type: field.field_type } : { name: '', label: '', field_type: 'int' });
+    setFieldForm(field ? { 
+        name: field.name, 
+        label: field.label, 
+        field_type: field.field_type,
+        start_date: field.start_date ? new Date(field.start_date).toISOString().split('T')[0] : '',
+        end_date: field.end_date ? new Date(field.end_date).toISOString().split('T')[0] : '',
+        duration: field.duration ? field.duration.toString() : '',
+        hour: field.hour || '',
+        is_custom_date: field.is_custom_date || false
+    } : { name: '', label: '', field_type: 'int', start_date: '', end_date: '', duration: '', hour: '', is_custom_date: false });
     setFieldModalOpen(true);
   };
 
@@ -225,8 +247,19 @@ export default function SettingsPage() {
     if (!fieldModalMetricId) return;
     const method = editingField ? 'PUT' : 'POST';
     const body = editingField
-      ? { field_id: editingField.id, ...fieldForm }
-      : fieldForm;
+      ? { 
+          field_id: editingField.id, 
+          ...fieldForm,
+          duration: fieldForm.duration ? parseInt(fieldForm.duration) : null,
+          start_date: fieldForm.is_custom_date && fieldForm.start_date ? fieldForm.start_date : null,
+          end_date: fieldForm.is_custom_date && fieldForm.end_date ? fieldForm.end_date : null
+      }
+      : {
+          ...fieldForm,
+          duration: fieldForm.duration ? parseInt(fieldForm.duration) : null,
+          start_date: fieldForm.is_custom_date && fieldForm.start_date ? fieldForm.start_date : null,
+          end_date: fieldForm.is_custom_date && fieldForm.end_date ? fieldForm.end_date : null
+      };
     const res = await fetch(`/api/metrics/${fieldModalMetricId}/fields`, {
       method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
     });
@@ -294,6 +327,18 @@ export default function SettingsPage() {
             data.max_points = parseInt(data.max_points);
             data.difficulty_level = parseInt(data.difficulty_level);
             if (!data.input_type) data.input_type = 'boolean';
+            // Custom date format
+            data.is_custom_date = !!data.is_custom_date;
+            if (data.duration) data.duration = parseInt(data.duration);
+            if (!data.is_custom_date) {
+                data.start_date = null;
+                data.end_date = null;
+            } else {
+                if (!data.start_date) data.start_date = null;
+                if (!data.end_date) data.end_date = null;
+            }
+            if (!data.hour) data.hour = null;
+
             // Maintain active status if editing, else default to true
             if (!editingItem) data.active = true;
        }
@@ -577,6 +622,49 @@ export default function SettingsPage() {
                   <option value="text">Text (notes)</option>
                 </select>
               </div>
+              
+              <div style={{ padding: '12px', background: 'rgba(0,0,0,0.03)', borderRadius: '8px', border: '1px solid #e5e7eb' }}>
+                <h4 style={{ fontSize: '13px', fontWeight: 600, marginBottom: '8px' }}>Tracking Settings</h4>
+                
+                <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+                     <div style={{ flex: 1 }}>
+                        <label style={{ fontSize: '12px', color: '#9ca3af', display: 'block', marginBottom: '4px' }}>Duration (mins)</label>
+                        <input className="input" type="number" placeholder="e.g. 30"
+                            value={fieldForm.duration} onChange={e => setFieldForm(f => ({ ...f, duration: e.target.value }))}
+                        />
+                     </div>
+                     <div style={{ flex: 1 }}>
+                        <label style={{ fontSize: '12px', color: '#9ca3af', display: 'block', marginBottom: '4px' }}>Target Hour</label>
+                        <input className="input" type="time"
+                            value={fieldForm.hour} onChange={e => setFieldForm(f => ({ ...f, hour: e.target.value }))}
+                        />
+                     </div>
+                </div>
+
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', marginBottom: '8px', cursor: 'pointer' }}>
+                  <input type="checkbox" checked={fieldForm.is_custom_date} 
+                    onChange={e => setFieldForm(f => ({ ...f, is_custom_date: e.target.checked }))} />
+                  Use Custom Date Range?
+                </label>
+
+                {fieldForm.is_custom_date && (
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                         <div style={{ flex: 1 }}>
+                            <label style={{ fontSize: '12px', color: '#9ca3af', display: 'block', marginBottom: '4px' }}>Start Date</label>
+                            <input className="input" type="date"
+                                value={fieldForm.start_date} onChange={e => setFieldForm(f => ({ ...f, start_date: e.target.value }))}
+                            />
+                         </div>
+                         <div style={{ flex: 1 }}>
+                            <label style={{ fontSize: '12px', color: '#9ca3af', display: 'block', marginBottom: '4px' }}>End Date</label>
+                            <input className="input" type="date"
+                                value={fieldForm.end_date} onChange={e => setFieldForm(f => ({ ...f, end_date: e.target.value }))}
+                            />
+                         </div>
+                    </div>
+                )}
+              </div>
+
               <button type="submit" className="create-btn" style={{ marginTop: '0.5rem' }}>
                 {editingField ? 'Save Changes' : 'Add Field'}
               </button>
@@ -609,6 +697,34 @@ export default function SettingsPage() {
                             </select>
                             <input name="max_points" defaultValue={editingItem?.max_points} type="number" placeholder="Max Points (e.g. 10)" required className="input" />
                             <input name="difficulty_level" defaultValue={editingItem?.difficulty_level} type="number" min="1" max="5" placeholder="Difficulty (1-5)" required className="input" />
+                            
+                            <div className="flex gap-2">
+                                <div className="flex-1">
+                                    <label className="text-xs text-gray-500 block mb-1">Target Duration (min)</label>
+                                    <input name="duration" defaultValue={editingItem?.duration || ''} type="number" placeholder="e.g. 60" className="input" />
+                                </div>
+                                <div className="flex-1">
+                                    <label className="text-xs text-gray-500 block mb-1">Target Hour</label>
+                                    <input name="hour" defaultValue={editingItem?.hour || ''} type="time" className="input" />
+                                </div>
+                            </div>
+                            
+                            <div className="bg-gray-50 p-3 rounded border dark:bg-zinc-800 dark:border-zinc-700">
+                                <label className="flex items-center gap-2 text-sm font-medium mb-3 cursor-pointer">
+                                    <input type="checkbox" name="is_custom_date" id="is_custom_date_trigger" defaultChecked={editingItem?.is_custom_date} />
+                                    Custom Date Range?
+                                </label>
+                                <div className="flex gap-2" id="custom_date_container">
+                                    <div className="flex-1">
+                                        <label className="text-xs text-gray-500 block mb-1">Start Date</label>
+                                        <input name="start_date" type="date" defaultValue={editingItem?.start_date ? new Date(editingItem.start_date).toISOString().split('T')[0] : ''} className="input" />
+                                    </div>
+                                    <div className="flex-1">
+                                        <label className="text-xs text-gray-500 block mb-1">End Date</label>
+                                        <input name="end_date" type="date" defaultValue={editingItem?.end_date ? new Date(editingItem.end_date).toISOString().split('T')[0] : ''} className="input" />
+                                    </div>
+                                </div>
+                            </div>
                         </>
                     )}
                     {modalType === "Cycle" && (

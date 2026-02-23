@@ -59,7 +59,12 @@ export async function POST(request: Request) {
         max_points, 
         difficulty_level,
         active,
-        input_type
+        input_type,
+        start_date,
+        end_date,
+        duration,
+        hour,
+        is_custom_date
       )
       VALUES (
         ${body.axis_id}, 
@@ -68,7 +73,12 @@ export async function POST(request: Request) {
         ${body.max_points}, 
         ${body.difficulty_level || 3},
         ${body.active !== false},
-        ${body.input_type || 'boolean'}
+        ${body.input_type || 'boolean'},
+        ${body.start_date || null},
+        ${body.end_date || null},
+        ${body.duration || null},
+        ${body.hour || null},
+        ${body.is_custom_date || false}
       )
       RETURNING *
     `
@@ -109,6 +119,11 @@ export async function PUT(request: Request) {
         if (body.difficulty_level !== undefined) updateData.difficulty_level = body.difficulty_level;
         if (body.active !== undefined) updateData.active = body.active;
         if (body.input_type !== undefined) updateData.input_type = body.input_type;
+        if (body.start_date !== undefined) updateData.start_date = body.start_date;
+        if (body.end_date !== undefined) updateData.end_date = body.end_date;
+        if (body.duration !== undefined) updateData.duration = body.duration;
+        if (body.hour !== undefined) updateData.hour = body.hour;
+        if (body.is_custom_date !== undefined) updateData.is_custom_date = body.is_custom_date;
 
         if (Object.keys(updateData).length === 0) {
             return NextResponse.json({ error: 'No fields to update' }, { status: 400 });

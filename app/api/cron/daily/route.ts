@@ -46,10 +46,16 @@ export async function GET(request: Request) {
           const dataRows = await sql`
             WITH active_metrics AS (
                 SELECT m.id, m.name, m.max_points, m.input_type,
+                       m.start_date, m.end_date, m.duration, m.hour, m.is_custom_date,
                        a.name as axis_name, a.id as axis_id
                 FROM metrics m
                 JOIN axes a ON m.axis_id = a.id
                 WHERE m.active = TRUE AND a.active = TRUE
+                AND (
+                  m.is_custom_date = FALSE 
+                  OR ((NOW() AT TIME ZONE 'Africa/Tunis')::DATE >= COALESCE(m.start_date, (NOW() AT TIME ZONE 'Africa/Tunis')::DATE) 
+                      AND (NOW() AT TIME ZONE 'Africa/Tunis')::DATE <= COALESCE(m.end_date, (NOW() AT TIME ZONE 'Africa/Tunis')::DATE))
+                )
             ),
             yesterday_entries AS (
                 SELECT de.metric_id, de.completed, de.score_awarded, de.score_value, de.review,
@@ -68,6 +74,7 @@ export async function GET(request: Request) {
             SELECT
                 (SELECT COALESCE(json_agg(json_build_object(
                     'name', name, 'max_points', max_points, 'input_type', input_type,
+                    'start_date', start_date, 'end_date', end_date, 'duration', duration, 'hour', hour, 'is_custom_date', is_custom_date,
                     'axis_name', axis_name, 'axis_id', axis_id
                 ) ORDER BY axis_name, name), '[]'::json) FROM active_metrics) as today_metrics,
                 (SELECT COALESCE(json_agg(json_build_object(
@@ -147,7 +154,11 @@ export async function GET(request: Request) {
               const totalPts = metrics.reduce((sum: number, m: any) => sum + m.max_points, 0)
               const metricList = metrics.map((m: any) => {
                 const typeLabel = m.input_type === 'emoji_5' ? '😊' : m.input_type === 'scale_0_5' ? '⑤' : m.input_type === 'scale_0_10' ? '⑩' : '☑️'
-                return `${typeLabel} ${m.name}`
+                let timeLabel = ''
+                if (m.hour || m.duration) {
+                   timeLabel = ` [${m.hour ? m.hour : ''}${m.hour && m.duration ? '|' : ''}${m.duration ? m.duration+'m' : ''}]`
+                }
+                return `${typeLabel} ${m.name}${timeLabel}`
               }).join(', ')
               msg += `${emoji} *${axisName}* (${totalPts}pt): ${metricList}\n`
             }
@@ -265,6 +276,7 @@ export async function GET(request: Request) {
           const dailyEntryRows = await sql`
               SELECT 
                   de.metric_id, m.name, m.input_type, m.max_points,
+                  m.start_date, m.end_date, m.duration, m.hour, m.is_custom_date,
                   de.completed, de.score_awarded, de.score_value, de.review,
                   CASE WHEN s.current_streak IS NULL THEN 0 ELSE s.current_streak END as streak
               FROM daily_entries de
@@ -279,6 +291,11 @@ export async function GET(request: Request) {
               max: i.max_points,
               streak: i.streak,
               input_type: i.input_type || 'boolean',
+              start_date: i.start_date,
+              end_date: i.end_date,
+              duration: i.duration,
+              hour: i.hour,
+              is_custom_date: i.is_custom_date,
               score_value: i.score_value,
               review: i.review || null,
           }))
@@ -289,6 +306,7 @@ export async function GET(request: Request) {
                   mf.label as field_label,
                   mf.name as field_name,
                   mf.field_type,
+                  mf.start_date, mf.end_date, mf.duration, mf.hour, mf.is_custom_date,
                   dfe.value_int,
                   dfe.value_bool,
                   dfe.value_text,
@@ -306,6 +324,11 @@ export async function GET(request: Request) {
               subFieldsByMetric[sf.metric_name].push({
                   field: sf.field_label || sf.field_name,
                   type: sf.field_type,
+                  start_date: sf.start_date,
+                  end_date: sf.end_date,
+                  duration: sf.duration,
+                  hour: sf.hour,
+                  is_custom_date: sf.is_custom_date,
                   value: sf.field_type === 'boolean' ? sf.value_bool
                       : sf.field_type === 'text' ? sf.value_text
                       : sf.value_int,

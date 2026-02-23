@@ -35,6 +35,7 @@ export async function POST(request: Request) {
         const items = await sql`
             SELECT 
                 de.*, m.name, m.difficulty_level, m.max_points, m.input_type,
+                m.start_date, m.end_date, m.duration, m.hour, m.is_custom_date,
                 CASE WHEN s.current_streak IS NULL THEN 0 ELSE s.current_streak END as streak
             FROM daily_entries de
             JOIN metrics m ON de.metric_id = m.id
@@ -60,6 +61,7 @@ export async function POST(request: Request) {
                 mf.name as field_name,
                 mf.label as field_label,
                 mf.field_type,
+                mf.start_date, mf.end_date, mf.duration, mf.hour, mf.is_custom_date,
                 dfe.value_int,
                 dfe.value_bool,
                 dfe.value_text,
@@ -78,6 +80,11 @@ export async function POST(request: Request) {
             fieldValuesByMetric[fv.metric_name].push({
                 field: fv.field_label || fv.field_name,
                 type: fv.field_type,
+                start_date: fv.start_date,
+                end_date: fv.end_date,
+                duration: fv.duration,
+                hour: fv.hour,
+                is_custom_date: fv.is_custom_date,
                 value: fv.field_type === 'boolean' ? fv.value_bool
                     : fv.field_type === 'text' ? fv.value_text
                     : fv.value_int,
@@ -95,6 +102,11 @@ export async function POST(request: Request) {
                 max: i.max_points,
                 streak: i.streak,
                 input_type: i.input_type || 'boolean',
+                start_date: i.start_date,
+                end_date: i.end_date,
+                duration: i.duration,
+                hour: i.hour,
+                is_custom_date: i.is_custom_date,
                 score_value: i.score_value,
                 review: i.review || null,
             })),
@@ -149,6 +161,11 @@ export async function POST(request: Request) {
             SELECT 
                 m.name,
                 m.input_type,
+                m.start_date,
+                m.end_date,
+                m.duration,
+                m.hour,
+                m.is_custom_date,
                 COUNT(de.id) as total_days,
                 SUM(CASE WHEN de.completed THEN 1 ELSE 0 END) as completed_days,
                 SUM(de.score_awarded) as total_points,
@@ -158,7 +175,7 @@ export async function POST(request: Request) {
             JOIN metrics m ON de.metric_id = m.id
             WHERE de.user_id = ${userId}
             AND de.date BETWEEN ${start} AND ${end}
-            GROUP BY m.name, m.input_type
+            GROUP BY m.name, m.input_type, m.start_date, m.end_date, m.duration, m.hour, m.is_custom_date
         `
 
         // 3. Get sub-field values for the week (averages/sums per field)
@@ -168,6 +185,7 @@ export async function POST(request: Request) {
                 mf.name as field_name,
                 mf.label as field_label,
                 mf.field_type,
+                mf.start_date, mf.end_date, mf.duration, mf.hour, mf.is_custom_date,
                 COUNT(dfe.id) as days_logged,
                 AVG(dfe.value_int) FILTER (WHERE mf.field_type IN ('int','scale_0_5')) as avg_value,
                 SUM(dfe.value_int) FILTER (WHERE mf.field_type = 'int') as total_value,
@@ -179,7 +197,7 @@ export async function POST(request: Request) {
             JOIN metric_fields mf ON dfe.field_id = mf.id
             JOIN metrics m ON dfe.metric_id = m.id
             WHERE dfe.user_id = ${userId} AND dfe.date BETWEEN ${start} AND ${end}
-            GROUP BY m.name, mf.name, mf.label, mf.field_type, mf.sort_order
+            GROUP BY m.name, mf.name, mf.label, mf.field_type, mf.sort_order, mf.start_date, mf.end_date, mf.duration, mf.hour, mf.is_custom_date
             ORDER BY m.name, mf.sort_order
         `
 
@@ -187,7 +205,16 @@ export async function POST(request: Request) {
         const weeklyFieldsByMetric: Record<string, any[]> = {}
         for (const f of weeklyFieldsRaw) {
             if (!weeklyFieldsByMetric[f.metric_name]) weeklyFieldsByMetric[f.metric_name] = []
-            const entry: any = { field: f.field_label || f.field_name, type: f.field_type, days_logged: f.days_logged }
+            const entry: any = { 
+                field: f.field_label || f.field_name, 
+                type: f.field_type, 
+                start_date: f.start_date,
+                end_date: f.end_date,
+                duration: f.duration,
+                hour: f.hour,
+                is_custom_date: f.is_custom_date,
+                days_logged: f.days_logged 
+            }
             if (f.field_type === 'int') { entry.total = f.total_value; entry.avg = f.avg_value ? Math.round(f.avg_value) : null }
             if (f.field_type === 'scale_0_5') { entry.avg = f.avg_value ? Number(f.avg_value).toFixed(1) : null }
             if (f.field_type === 'boolean') { entry.done_days = f.bool_true_days; entry.skipped_days = f.bool_false_days }

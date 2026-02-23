@@ -5,6 +5,8 @@ import Link from "next/link";
 import { UserAvatar } from "./components/user-avatar";
 import { StreakCard } from "./components/charts/StreakCard";
 import { WeeklyProgress } from "./components/charts/WeeklyProgress";
+import { ActivityHeatmap } from "./components/charts/ActivityHeatmap";
+import { AxisRadarChart } from "./components/charts/AxisRadarChart";
 
 export default function Dashboard() {
   const [analytics, setAnalytics] = useState<any>(null);
@@ -61,7 +63,6 @@ export default function Dashboard() {
           });
           
           if (res.ok) {
-              // Remove suggestion from UI
               setSuggestions(prev => prev.filter(s => s.metric_id !== metricId));
               alert("Difficulty updated! 🚀");
           }
@@ -78,10 +79,30 @@ export default function Dashboard() {
     return "#ef4444";
   };
   
+  // Dynamic Burnout/Momentum Banner calculation
+  const getDynamicStatus = () => {
+      // Very basic logic for demo: In a real app we'd fetch burnout_flag or recent_avg
+      if (todayLog?.mode === "Burnout Risk") return { type: 'danger', icon: '🧯', msg: 'High Burnout Risk Detected' };
+      if (analytics?.global_streak >= 5) return { type: 'momentum', icon: '🔥', msg: 'Momentum Active! Keep it going.' };
+      if (todayLog?.total_score >= 80) return { type: 'success', icon: '⚡', msg: 'Peak Performance Today' };
+      return null;
+  };
+
+  const dynamicStatus = getDynamicStatus();
+  
   if (loading) return <div className="p-8 text-center text-gray-500">Loading Dashboard...</div>;
 
   return (
     <div className="dashboard">
+      {/* Dynamic Status Banner */}
+      {dynamicStatus && (
+          <div className={`status-banner ${dynamicStatus.type}`}>
+               <div className="status-glow"></div>
+               <span className="status-icon">{dynamicStatus.icon}</span>
+               <span className="status-msg">{dynamicStatus.msg}</span>
+          </div>
+      )}
+
       {/* Header */}
       <header className="dashboard-header">
         <div>
@@ -94,58 +115,28 @@ export default function Dashboard() {
         </div>
       </header>
 
-      {/* XP & Level Bar */}
+      {/* XP & Level Bar (Modernized) */}
       {xpStatus && (
-        <div style={{
-          background: 'rgba(255,255,255,0.05)',
-          borderRadius: '12px',
-          padding: '12px 16px',
-          marginBottom: '16px',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '12px',
-        }}>
+        <div className="xp-container">
           {/* Level Badge */}
-          <div style={{
-            background: 'linear-gradient(135deg, #7c3aed, #a855f7)',
-            borderRadius: '50%',
-            width: '40px',
-            height: '40px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: '14px',
-            fontWeight: 700,
-            color: 'white',
-            flexShrink: 0,
-          }}>
-            {xpStatus.level}
+          <div className="level-badge">
+            <div className="level-badge-inner">{xpStatus.level}</div>
           </div>
-          <div style={{ flex: 1 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-              <span style={{ fontSize: '12px', color: '#a78bfa', fontWeight: 600 }}>Level {xpStatus.level}</span>
-              <span style={{ fontSize: '11px', color: '#6b7280' }}>{xpStatus.xpIntoLevel} / {xpStatus.xpNeeded} XP</span>
+          <div className="xp-content">
+            <div className="xp-header">
+              <span className="xp-level-text">Level {xpStatus.level}</span>
+              <span className="xp-ratio-text">{xpStatus.xpIntoLevel} / {xpStatus.xpNeeded} XP</span>
             </div>
-            <div style={{ background: 'rgba(255,255,255,0.1)', borderRadius: '99px', height: '6px', overflow: 'hidden' }}>
-              <div style={{
-                background: 'linear-gradient(90deg, #7c3aed, #a855f7)',
-                height: '100%',
-                width: `${xpStatus.progressPercent}%`,
-                borderRadius: '99px',
-                transition: 'width 0.5s ease',
-              }} />
+            <div className="xp-bar-bg">
+              <div 
+                className="xp-bar-fill" 
+                style={{ width: `${xpStatus.progressPercent}%` }} 
+              />
             </div>
             {xpStatus.titles?.length > 0 && (
-              <div style={{ marginTop: '6px', display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+              <div className="xp-titles">
                 {xpStatus.titles.map((t: any) => (
-                  <span key={t.id} title={t.description} style={{
-                    background: 'rgba(168,85,247,0.2)',
-                    color: '#c4b5fd',
-                    fontSize: '10px',
-                    padding: '2px 8px',
-                    borderRadius: '99px',
-                    border: '1px solid rgba(168,85,247,0.3)',
-                  }}>
+                  <span key={t.id} title={t.description} className="xp-title-badge">
                     {t.name}
                   </span>
                 ))}
@@ -167,15 +158,20 @@ export default function Dashboard() {
       
       {/* Action Bar */}
       <section className="action-bar">
-          <Link href="/daily" className="action-btn primary">
-            {todayLog ? "Edit Today's Log" : "📝 Log Today"}
+          <Link href="/daily" className="action-btn primary group">
+            <span className="btn-icon transition-transform group-hover:scale-110">📝</span>
+            <span>{todayLog ? "Edit Today's Log" : "Log Today"}</span>
           </Link>
-          <Link href="/reports" className="action-btn secondary">
-            📊 Reports
-          </Link>
-          <Link href="/coach" className="action-btn secondary">
-            🧠 AI Coach
-          </Link>
+          <div className="action-row">
+            <Link href="/reports" className="action-btn secondary group">
+              <span className="btn-icon transition-transform group-hover:scale-110">📊</span>
+              <span>Reports</span>
+            </Link>
+            <Link href="/coach" className="action-btn secondary group">
+              <span className="btn-icon transition-transform group-hover:scale-110">🧠</span>
+              <span>AI Coach</span>
+            </Link>
+          </div>
       </section>
 
       {/* KPI Grid */}
@@ -184,7 +180,7 @@ export default function Dashboard() {
            <StreakCard streak={analytics?.global_streak || 0} label="Global Streak" />
            
            {/* Today's Score */}
-           <div className="stat-card">
+           <div className={`stat-card ${todayLog ? 'active-glow' : ''}`}>
                <span className="stat-label">Today's Score</span>
                <div className="stat-value-wrapper">
                    {todayLog ? (
@@ -199,20 +195,38 @@ export default function Dashboard() {
            </div>
       </section>
 
-      {/* Weekly Progress Chart */}
-      <section className="chart-section">
-          {analytics?.weekly_scores && <WeeklyProgress data={analytics.weekly_scores} />}
+      {/* New Activity Heatmap */}
+      <section className="chart-section fadeIn">
+          {analytics?.heatmap_scores && <ActivityHeatmap data={analytics.heatmap_scores} />}
+      </section>
+
+      {/* Charts Grid */}
+      <section className="charts-grid fadeIn">
+          {/* Weekly Progress Chart */}
+          <div className="chart-wrapper">
+            {analytics?.weekly_scores && <WeeklyProgress data={analytics.weekly_scores} />}
+          </div>
+          
+          {/* Axis Radar Chart */}
+          <div className="chart-wrapper">
+            {analytics?.axis_performance && <AxisRadarChart data={analytics.axis_performance} />}
+          </div>
       </section>
       
       {/* Top Metric Streaks */}
       {analytics?.top_streaks?.length > 0 && (
-          <section className="streaks-list">
+          <section className="streaks-list fadeIn">
               <h3 className="section-title">Top Habits</h3>
-              <div className="grid gap-2">
+              <div className="grid gap-3">
                   {analytics.top_streaks.map((s: any) => (
-                      <div key={s.name} className="streak-row">
-                          <span className="streak-name">{s.icon} {s.name}</span>
-                          <span className="streak-badge">🔥 {s.current_streak} days</span>
+                      <div key={s.name} className="streak-row group">
+                          <span className="streak-name flex items-center gap-2">
+                             <span className="streak-icon-wrap">{s.icon}</span> 
+                             {s.name}
+                          </span>
+                          <span className="streak-badge group-hover:bg-orange-100 transition-colors">
+                              🔥 {s.current_streak}
+                          </span>
                       </div>
                   ))}
               </div>
@@ -221,58 +235,116 @@ export default function Dashboard() {
 
       {/* AI Insights Card */}
       {aiInsights && (aiInsights.tips?.length > 0 || aiInsights.strategies?.length > 0 || aiInsights.focus_areas?.length > 0) && (
-        <section className="ai-insights-card">
+        <section className="ai-insights-card fadeIn">
           <div className="ai-insights-header">
-            <span className="ai-insights-title">🤖 AI Coach Insights</span>
+            <span className="ai-insights-title flex items-center gap-2">
+                <span className="ai-pulse"></span>
+                🤖 AI Coach Insights
+            </span>
             <span className="ai-insights-badge">
               {aiInsights.report_type === 'weekly' ? '🗓 Last Week' : '📅 Yesterday'}
             </span>
           </div>
 
-          {aiInsights.focus_areas?.length > 0 && (
-            <div className="ai-insights-section">
-              <p className="ai-insights-label">🎯 Focus Areas</p>
-              <div className="focus-chips">
-                {aiInsights.focus_areas.map((f: any, i: number) => (
-                  <div key={i} className="focus-chip" title={f.reason}>
-                    <span className="focus-chip-area">{f.area}</span>
-                    {f.reason && <span className="focus-chip-reason">{f.reason}</span>}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+          <div className="ai-insights-grid">
+            {aiInsights.focus_areas?.length > 0 && (
+                <div className="ai-insights-section">
+                <p className="ai-insights-label">🎯 Focus Areas</p>
+                <div className="focus-chips">
+                    {aiInsights.focus_areas.map((f: any, i: number) => (
+                    <div key={i} className="focus-chip" title={f.reason}>
+                        <span className="focus-chip-area">{f.area}</span>
+                        {f.reason && <span className="focus-chip-reason">{f.reason}</span>}
+                    </div>
+                    ))}
+                </div>
+                </div>
+            )}
 
-          {aiInsights.tips?.length > 0 && (
-            <div className="ai-insights-section">
-              <p className="ai-insights-label">💡 Tips</p>
-              <ul className="ai-list">
-                {aiInsights.tips.map((tip: string, i: number) => (
-                  <li key={i} className="ai-list-item">→ {tip}</li>
-                ))}
-              </ul>
-            </div>
-          )}
+            <div className="flex flex-col gap-4">
+                {aiInsights.tips?.length > 0 && (
+                    <div className="ai-insights-section">
+                    <p className="ai-insights-label">💡 Tips</p>
+                    <ul className="ai-list">
+                        {aiInsights.tips.slice(0, 2).map((tip: string, i: number) => (
+                        <li key={i} className="ai-list-item">
+                            <span className="ai-bullet">›</span> {tip}
+                        </li>
+                        ))}
+                    </ul>
+                    </div>
+                )}
 
-          {aiInsights.strategies?.length > 0 && (
-            <div className="ai-insights-section">
-              <p className="ai-insights-label">⚡ Strategy</p>
-              <ul className="ai-list">
-                {aiInsights.strategies.map((s: string, i: number) => (
-                  <li key={i} className="ai-list-item">→ {s}</li>
-                ))}
-              </ul>
+                {aiInsights.strategies?.length > 0 && (
+                    <div className="ai-insights-section">
+                    <p className="ai-insights-label">⚡ Strategy</p>
+                    <ul className="ai-list">
+                        {aiInsights.strategies.slice(0, 1).map((s: string, i: number) => (
+                        <li key={i} className="ai-list-item">
+                            <span className="ai-bullet">›</span> {s}
+                        </li>
+                        ))}
+                    </ul>
+                    </div>
+                )}
             </div>
-          )}
+          </div>
         </section>
       )}
 
       <style jsx>{`
+        /* Global Animations */
+        @keyframes fadeInScale {
+            0% { opacity: 0; transform: translateY(10px) scale(0.98); }
+            100% { opacity: 1; transform: translateY(0) scale(1); }
+        }
+        .fadeIn {
+            animation: fadeInScale 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+
         .dashboard {
           max-width: 600px;
           margin: 0 auto;
-          padding: 1.5rem 1rem 4rem;
+          padding: 1rem 1rem 4rem;
         }
+        
+        /* Dynamic Status Banner */
+        .status-banner {
+            position: relative;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            padding: 0.5rem 1rem;
+            border-radius: 99px;
+            margin-bottom: 1.5rem;
+            font-size: 0.85rem;
+            font-weight: 600;
+            box-shadow: 0 4px 15px -3px rgba(0,0,0,0.1);
+            animation: pulse-border 2s infinite;
+        }
+        .status-banner.momentum {
+            background: linear-gradient(90deg, #ffedd5, #ffedd5);
+            color: #c2410c;
+            border: 1px solid #fdba74;
+        }
+        .status-banner.success {
+            background: linear-gradient(90deg, #dcfce7, #dcfce7);
+            color: #15803d;
+            border: 1px solid #86efac;
+        }
+        .status-banner.danger {
+            background: linear-gradient(90deg, #fee2e2, #fee2e2);
+            color: #b91c1c;
+            border: 1px solid #fca5a5;
+        }
+        @media (prefers-color-scheme: dark) {
+            .status-banner.momentum { background: linear-gradient(90deg, #431407, #431407); color: #fdba74; border-color: #7c2d12; }
+            .status-banner.success { background: linear-gradient(90deg, #052e16, #052e16); color: #86efac; border-color: #065f46; }
+            .status-banner.danger { background: linear-gradient(90deg, #450a0a, #450a0a); color: #fca5a5; border-color: #7f1d1d; }
+        }
+
         .dashboard-header {
             display: flex;
             justify-content: space-between;
@@ -280,16 +352,96 @@ export default function Dashboard() {
             margin-bottom: 2rem;
         }
         .dashboard-title {
-            font-size: 1.75rem;
+            font-size: 2rem;
             font-weight: 800;
             margin: 0;
-            line-height: 1.2;
+            line-height: 1.1;
+            letter-spacing: -0.02em;
         }
         .dashboard-subtitle {
-            font-size: 0.9rem;
+            font-size: 0.95rem;
             color: #6b7280;
             margin-top: 0.25rem;
+            font-weight: 500;
         }
+        
+        /* Modernized XP Bar */
+        .xp-container {
+          background: rgba(255,255,255,0.7);
+          backdrop-filter: blur(10px);
+          -webkit-backdrop-filter: blur(10px);
+          border: 1px solid rgba(255,255,255,0.3);
+          border-radius: 16px;
+          padding: 12px 16px;
+          margin-bottom: 1.5rem;
+          display: flex;
+          align-items: center;
+          gap: 16px;
+          box-shadow: 0 4px 6px -1px rgba(0,0,0,0.02), inset 0 1px 0 rgba(255,255,255,1);
+        }
+        @media (prefers-color-scheme: dark) {
+            .xp-container { 
+                background: rgba(30,30,30,0.6); 
+                border-color: rgba(255,255,255,0.05);
+                box-shadow: 0 4px 6px -1px rgba(0,0,0,0.2);
+            }
+        }
+        .level-badge {
+            background: linear-gradient(135deg, #8b5cf6, #3b82f6);
+            padding: 2px;
+            border-radius: 50%;
+            box-shadow: 0 4px 10px rgba(139, 92, 246, 0.3);
+        }
+        .level-badge-inner {
+            background: #111827;
+            border-radius: 50%;
+            width: 44px;
+            height: 44px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.1rem;
+            font-weight: 800;
+            color: white;
+            border: 2px solid transparent;
+        }
+        @media (prefers-color-scheme: dark) { .level-badge-inner { background: #000; } }
+        .xp-content { flex: 1; }
+        .xp-header { display: flex; justify-content: space-between; margin-bottom: 6px; align-items: flex-end; }
+        .xp-level-text { font-size: 0.85rem; color: #8b5cf6; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; }
+        .xp-ratio-text { font-size: 0.75rem; color: #6b7280; font-weight: 600; font-variant-numeric: tabular-nums; }
+        .xp-bar-bg { background: rgba(0,0,0,0.05); border-radius: 99px; height: 8px; overflow: hidden; box-shadow: inset 0 1px 2px rgba(0,0,0,0.05); }
+        @media (prefers-color-scheme: dark) { .xp-bar-bg { background: rgba(255,255,255,0.1); } }
+        .xp-bar-fill {
+            background: linear-gradient(90deg, #8b5cf6, #3b82f6);
+            height: 100%;
+            border-radius: 99px;
+            transition: width 1s cubic-bezier(0.34, 1.56, 0.64, 1);
+            position: relative;
+            overflow: hidden;
+        }
+        .xp-bar-fill::after {
+            content: ''; position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
+            transform: translateX(-100%);
+            animation: shimmer 2s infinite;
+        }
+        @keyframes shimmer { 100% { transform: translateX(100%); } }
+        
+        .xp-titles { margin-top: 8px; display: flex; gap: 6px; flex-wrap: wrap; }
+        .xp-title-badge {
+            background: rgba(139,92,246,0.1);
+            color: #7c3aed;
+            font-size: 0.65rem;
+            font-weight: 600;
+            padding: 3px 8px;
+            border-radius: 6px;
+            border: 1px solid rgba(139,92,246,0.2);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        @media (prefers-color-scheme: dark) { .xp-title-badge { color: #c4b5fd; border-color: rgba(139,92,246,0.3); } }
+
         .insight-banner {
             padding: 1rem;
             border-radius: 12px;
@@ -323,33 +475,55 @@ export default function Dashboard() {
         }
         .icon-btn:hover { background: #f3f4f6; }
 
+        /* Action Bar Upgrade */
         .action-bar {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 1rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
             margin-bottom: 2rem;
         }
+        .action-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0.75rem;
+        }
         .action-btn {
-            text-align: center;
-            padding: 1rem;
-            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            padding: 1.125rem;
+            border-radius: 16px;
             font-weight: 600;
             text-decoration: none;
-            transition: transform 0.1s;
+            transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
         }
-        .action-btn:active { transform: scale(0.98); }
+        .action-btn:active { transform: scale(0.97); }
         .action-btn.primary {
-            background: #6366f1;
+            background: linear-gradient(135deg, #111827 0%, #374151 100%);
             color: white;
-            box-shadow: 0 4px 10px rgba(99, 102, 241, 0.3);
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.2), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+            font-size: 1.05rem;
         }
+        @media (prefers-color-scheme: dark) {
+            .action-btn.primary {
+                background: linear-gradient(135deg, #f9fafb 0%, #e5e7eb 100%);
+                color: #111827;
+                box-shadow: 0 10px 25px -5px rgba(255, 255, 255, 0.1);
+            }
+        }
+        .action-btn.primary:hover { box-shadow: 0 15px 30px -5px rgba(0, 0, 0, 0.3); transform: translateY(-2px); }
         .action-btn.secondary {
             background: white;
             border: 1px solid #e5e7eb;
             color: #4b5563;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.02);
         }
+        .action-btn.secondary:hover { border-color: #d1d5db; background: #f9fafb; transform: translateY(-1px); }
+        
         @media (prefers-color-scheme: dark) {
             .action-btn.secondary { background: #1f1f1f; border-color: #333; color: #e5e7eb; }
+            .action-btn.secondary:hover { background: #2a2a2a; border-color: #444; }
             .icon-btn:hover { background: #333; }
         }
 
@@ -357,7 +531,7 @@ export default function Dashboard() {
             display: grid;
             grid-template-columns: 1fr 1fr;
             gap: 1rem;
-            margin-bottom: 2rem;
+            margin-bottom: 1.5rem;
         }
         .stat-card {
             background: white;
@@ -368,10 +542,18 @@ export default function Dashboard() {
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.02);
+            position: relative;
+            overflow: hidden;
+            transition: all 0.3s ease;
+        }
+        .stat-card.active-glow {
+            border-color: rgba(34,197,94,0.3);
+            box-shadow: 0 10px 25px -5px rgba(34,197,94,0.1);
         }
         @media (prefers-color-scheme: dark) {
             .stat-card { background: #1f1f1f; border-color: #333; }
+            .stat-card.active-glow { border-color: rgba(34,197,94,0.2); box-shadow: 0 10px 25px -5px rgba(34,197,94,0.05); }
         }
         .stat-label {
             font-size: 0.75rem;
@@ -379,120 +561,203 @@ export default function Dashboard() {
             text-transform: uppercase;
             letter-spacing: 0.05em;
             margin-bottom: 0.5rem;
+            font-weight: 600;
         }
-        .stat-value { font-size: 2.5rem; font-weight: 800; line-height: 1; }
-        .stat-value.muted { color: #d1d5db; }
-        .stat-sublabel { font-size: 0.85rem; color: #9ca3af; margin-top: 0.25rem; }
+        .stat-value { font-size: 2.75rem; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+        .stat-value.muted { color: #d1d5db; @media(prefers-color-scheme: dark) { color: #374151; } }
+        .stat-sublabel { font-size: 0.85rem; color: #9ca3af; margin-top: 0.5rem; font-weight: 500; background: rgba(0,0,0,0.04); padding: 2px 8px; border-radius: 6px; }
+        @media(prefers-color-scheme: dark) { .stat-sublabel { background: rgba(255,255,255,0.05); } }
 
-        .chart-section { margin-bottom: 2rem; }
+        .chart-section { margin-bottom: 1.5rem; animation-delay: 0.1s; }
+        
+        .charts-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+            animation-delay: 0.2s;
+        }
+        
+        /* Show side by side on slightly larger screens */
+        @media (min-width: 640px) {
+            .charts-grid {
+                grid-template-columns: 1fr 1fr;
+            }
+            .charts-grid .chart-wrapper:first-child { grid-column: 1 / -1; }
+        }
         
         .section-title {
-            font-size: 1rem;
-            font-weight: 600;
+            font-size: 1.1rem;
+            font-weight: 700;
             margin-bottom: 1rem;
-            color: #374151;
+            color: #111827;
+            letter-spacing: -0.01em;
         }
-        @media (prefers-color-scheme: dark) { .section-title { color: #d1d5db; } }
+        @media (prefers-color-scheme: dark) { .section-title { color: #f9fafb; } }
 
+        .streaks-list {
+            margin-bottom: 2rem;
+            animation-delay: 0.3s;
+        }
         .streak-row {
             display: flex;
             justify-content: space-between;
             align-items: center;
             background: white;
-            padding: 0.75rem 1rem;
-            border-radius: 12px;
+            padding: 1rem 1.25rem;
+            border-radius: 14px;
             border: 1px solid #e5e7eb;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.01);
+            transition: transform 0.2s, box-shadow 0.2s, border-color 0.2s;
+        }
+        .streak-row:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 15px -3px rgba(0,0,0,0.05);
+            border-color: #d1d5db;
         }
         @media (prefers-color-scheme: dark) {
             .streak-row { background: #1f1f1f; border-color: #333; }
+            .streak-row:hover { border-color: #4b5563; }
         }
-        .streak-name { font-weight: 500; }
+        .streak-name { font-weight: 600; font-size: 0.95rem; }
+        .streak-icon-wrap {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 32px;
+            height: 32px;
+            background: rgba(0,0,0,0.04);
+            border-radius: 8px;
+            font-size: 1.1rem;
+        }
+        @media (prefers-color-scheme: dark) { .streak-icon-wrap { background: rgba(255,255,255,0.05); } }
         .streak-badge { 
             background: #fff7ed; 
-            color: #c2410c; 
-            font-size: 0.75rem; 
-            font-weight: 600; 
-            padding: 0.25rem 0.6rem; 
-            border-radius: 99px; 
+            color: #ea580c; 
+            font-size: 0.8rem; 
+            font-weight: 700; 
+            padding: 0.35rem 0.75rem; 
+            border-radius: 99px;
+            display: flex;
+            align-items: center;
+            gap: 4px;
         }
         @media (prefers-color-scheme: dark) {
              .streak-badge { background: #431407; color: #fdba74; }
         }
 
-        /* AI Insights Card */
+        /* AI Insights Card Upgraded */
         .ai-insights-card {
-          background: linear-gradient(135deg, rgba(99,102,241,0.08) 0%, rgba(139,92,246,0.08) 100%);
+          background: linear-gradient(135deg, rgba(99,102,241,0.05) 0%, rgba(139,92,246,0.05) 100%);
           border: 1px solid rgba(99,102,241,0.2);
-          border-radius: 16px;
-          padding: 1.25rem;
-          margin-top: 1.5rem;
+          border-radius: 20px;
+          padding: 1.5rem;
+          margin-top: 2rem;
+          position: relative;
+          overflow: hidden;
+          animation-delay: 0.4s;
+        }
+        .ai-insights-card::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0; height: 4px;
+            background: linear-gradient(90deg, #6366f1, #a855f7);
         }
         @media (prefers-color-scheme: dark) {
           .ai-insights-card {
-            background: linear-gradient(135deg, rgba(99,102,241,0.12) 0%, rgba(139,92,246,0.12) 100%);
+            background: linear-gradient(135deg, rgba(99,102,241,0.08) 0%, rgba(139,92,246,0.08) 100%);
             border-color: rgba(99,102,241,0.3);
           }
         }
+        .ai-pulse {
+            display: inline-block;
+            width: 8px; height: 8px;
+            background: #6366f1;
+            border-radius: 50%;
+            box-shadow: 0 0 0 rgba(99, 102, 241, 0.4);
+            animation: pulse-dot 2s infinite;
+        }
+        @keyframes pulse-dot {
+            0% { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.4); }
+            70% { box-shadow: 0 0 0 6px rgba(99, 102, 241, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0); }
+        }
+        
         .ai-insights-header {
           display: flex;
           align-items: center;
           justify-content: space-between;
-          margin-bottom: 1rem;
+          margin-bottom: 1.25rem;
         }
         .ai-insights-title {
-          font-size: 0.95rem;
+          font-size: 1rem;
           font-weight: 700;
-          color: #4f46e5;
+          color: #4338ca;
         }
         @media (prefers-color-scheme: dark) { .ai-insights-title { color: #a5b4fc; } }
         .ai-insights-badge {
           font-size: 0.7rem;
-          background: rgba(99,102,241,0.15);
+          background: rgba(99,102,241,0.1);
           color: #6366f1;
-          padding: 0.2rem 0.6rem;
+          padding: 0.25rem 0.6rem;
           border-radius: 99px;
           font-weight: 600;
+          border: 1px solid rgba(99,102,241,0.2);
         }
-        @media (prefers-color-scheme: dark) { .ai-insights-badge { color: #a5b4fc; } }
-        .ai-insights-section { margin-bottom: 0.875rem; }
-        .ai-insights-section:last-child { margin-bottom: 0; }
+        @media (prefers-color-scheme: dark) { .ai-insights-badge { color: #c7d2fe; } }
+        
+        .ai-insights-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 1.25rem;
+        }
+        @media (min-width: 640px) {
+            .ai-insights-grid { grid-template-columns: 1fr 1fr; gap: 2rem; }
+        }
+        
+        .ai-insights-section { margin-bottom: 0; }
         .ai-insights-label {
-          font-size: 0.72rem;
+          font-size: 0.75rem;
           font-weight: 700;
           text-transform: uppercase;
-          letter-spacing: 0.06em;
+          letter-spacing: 0.08em;
           color: #6b7280;
-          margin-bottom: 0.5rem;
+          margin-bottom: 0.75rem;
         }
-        .focus-chips { display: flex; flex-direction: column; gap: 0.4rem; }
+        .focus-chips { display: flex; flex-direction: column; gap: 0.5rem; }
         .focus-chip {
-          background: rgba(99,102,241,0.1);
-          border: 1px solid rgba(99,102,241,0.15);
-          border-radius: 10px;
-          padding: 0.5rem 0.75rem;
+          background: white;
+          border: 1px solid rgba(99,102,241,0.2);
+          border-radius: 12px;
+          padding: 0.75rem;
+          box-shadow: 0 2px 4px rgba(0,0,0,0.02);
         }
+        @media (prefers-color-scheme: dark) { .focus-chip { background: rgba(0,0,0,0.2); border-color: rgba(99,102,241,0.3); } }
         .focus-chip-area {
           display: block;
-          font-size: 0.85rem;
-          font-weight: 600;
+          font-size: 0.9rem;
+          font-weight: 700;
           color: #4338ca;
         }
         @media (prefers-color-scheme: dark) { .focus-chip-area { color: #c7d2fe; } }
         .focus-chip-reason {
           display: block;
-          font-size: 0.75rem;
-          color: #6b7280;
-          margin-top: 0.15rem;
+          font-size: 0.8rem;
+          color: #4b5563;
+          margin-top: 0.25rem;
           line-height: 1.4;
         }
-        .ai-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.35rem; }
+        @media (prefers-color-scheme: dark) { .focus-chip-reason { color: #9ca3af; } }
+        .ai-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.75rem; }
         .ai-list-item {
-          font-size: 0.85rem;
+          font-size: 0.9rem;
           color: #374151;
           line-height: 1.5;
-          padding-left: 0.25rem;
+          display: flex;
+          gap: 0.5rem;
         }
         @media (prefers-color-scheme: dark) { .ai-list-item { color: #d1d5db; } }
+        .ai-bullet { color: #8b5cf6; font-weight: bold; }
       `}</style>
     </div>
   );

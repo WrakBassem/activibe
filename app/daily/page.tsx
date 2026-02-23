@@ -15,6 +15,11 @@ type Metric = {
   difficulty_level: number;
   input_type: 'boolean' | 'emoji_5' | 'scale_0_5' | 'scale_0_10';
   active?: boolean;
+  start_date?: string;
+  end_date?: string;
+  duration?: number;
+  hour?: string;
+  is_custom_date?: boolean;
 };
 
 type MetricField = {
@@ -24,6 +29,11 @@ type MetricField = {
   label: string;
   field_type: 'int' | 'boolean' | 'scale_0_5' | 'text';
   active: boolean;
+  start_date?: string;
+  end_date?: string;
+  duration?: number;
+  hour?: string;
+  is_custom_date?: boolean;
 };
 
 type FieldValue = {
@@ -241,8 +251,26 @@ export default function DailyLogPage() {
       }
   };
 
+  // --- HELPER: Date Filtering ---
+  const isDateInRange = (itemDateStr: string | undefined, startDateStr?: string, endDateStr?: string) => {
+    if (!itemDateStr) return true;
+    const itemDate = new Date(itemDateStr).getTime();
+    
+    if (!startDateStr && !endDateStr) return true;
+    
+    let isValid = true;
+    if (startDateStr && itemDate < new Date(startDateStr).getTime()) isValid = false;
+    if (endDateStr && itemDate > new Date(endDateStr).getTime()) isValid = false;
+    return isValid;
+  };
+
+  const filteredMetrics = metrics.filter(m => {
+      if (m.is_custom_date) return isDateInRange(date, m.start_date, m.end_date);
+      return true;
+  });
+
   // Group metrics by Axis
-  const axes = Array.from(new Set(metrics.map(m => m.axis_name))).sort();
+  const axes = Array.from(new Set(filteredMetrics.map(m => m.axis_name))).sort();
 
   if (loading) return <div className="p-8 text-center text-gray-500">Loading Daily Log...</div>;
 
@@ -269,7 +297,7 @@ export default function DailyLogPage() {
 
       <main className="metrics-form">
         {axes.map(axisName => {
-            const axisMetrics = metrics.filter(m => m.axis_name === axisName && m.active !== false);
+            const axisMetrics = filteredMetrics.filter(m => m.axis_name === axisName && m.active !== false);
             if (axisMetrics.length === 0) return null;
             return (
                 <div key={axisName} className="axis-section">
@@ -292,7 +320,16 @@ export default function DailyLogPage() {
                                   }}>
                                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
                                       <div style={{ display: 'flex', flexDirection: 'column' }}>
-                                        <span style={{ fontWeight: 600, fontSize: '0.95rem' }}>{metric.name}</span>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                            <span style={{ fontWeight: 600, fontSize: '0.95rem' }}>{metric.name}</span>
+                                            {(metric.duration || metric.hour) && (
+                                                <span style={{ fontSize: '0.7rem', color: '#9ca3af', fontFamily: 'monospace' }}>
+                                                    {metric.hour && <span>{metric.hour}</span>}
+                                                    {metric.hour && metric.duration && <span style={{ margin: '0 4px' }}>•</span>}
+                                                    {metric.duration && <span>{metric.duration}m</span>}
+                                                </span>
+                                            )}
+                                        </div>
                                         <span style={{ fontSize: '0.7rem', color: '#6b7280' }}>{metric.max_points} pts</span>
                                       </div>
                                       <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -416,9 +453,21 @@ export default function DailyLogPage() {
                                     <div style={{ background: 'rgba(0,0,0,0.25)', padding: '12px 14px', display: 'grid', gap: '10px' }}>
                                       {fields.map(field => {
                                         const fv = fieldValues[field.id];
+                                        const isFieldVisible = field.is_custom_date ? isDateInRange(date, field.start_date, field.end_date) : true;
+                                        if (!isFieldVisible) return null;
+
                                         return (
                                           <div key={field.id} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                            <label style={{ fontSize: '12px', color: '#9ca3af', fontWeight: 500 }}>{field.label || field.name}</label>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                <label style={{ fontSize: '12px', color: '#9ca3af', fontWeight: 500 }}>{field.label || field.name}</label>
+                                                {(field.duration || field.hour) && (
+                                                    <span style={{ fontSize: '10px', color: '#6b7280', fontFamily: 'monospace' }}>
+                                                        {field.hour && <span>{field.hour}</span>}
+                                                        {field.hour && field.duration && <span style={{ margin: '0 4px' }}>•</span>}
+                                                        {field.duration && <span>{field.duration}m</span>}
+                                                    </span>
+                                                )}
+                                            </div>
                                             {field.field_type === 'boolean' && (
                                               <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
                                                 <input type="checkbox"
