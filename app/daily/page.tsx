@@ -14,6 +14,7 @@ type Metric = {
   max_points: number;
   difficulty_level: number;
   input_type: 'boolean' | 'emoji_5' | 'scale_0_5' | 'scale_0_10';
+  active?: boolean;
 };
 
 type MetricField = {
@@ -268,7 +269,8 @@ export default function DailyLogPage() {
 
       <main className="metrics-form">
         {axes.map(axisName => {
-            const axisMetrics = metrics.filter(m => m.axis_name === axisName);
+            const axisMetrics = metrics.filter(m => m.axis_name === axisName && m.active !== false);
+            if (axisMetrics.length === 0) return null;
             return (
                 <div key={axisName} className="axis-section">
                     <h3 className="axis-header">{axisName}</h3>

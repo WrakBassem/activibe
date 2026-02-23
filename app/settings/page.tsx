@@ -355,6 +355,22 @@ export default function SettingsPage() {
       }
   };
 
+  const handleToggleMetric = async (id: string, current: boolean) => {
+      // Optimistic update
+      setMetrics(metrics.map(m => m.id === id ? { ...m, active: !current } : m));
+      
+      try {
+          await fetch("/api/metrics", {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ id, active: !current }),
+          });
+      } catch (err) {
+          console.error("Failed to toggle metric", err);
+          fetchAll(); // Revert on error
+      }
+  };
+
 
   if (loading) return <div className="p-8 text-center text-gray-500">Loading Configuration...</div>;
 
@@ -419,12 +435,20 @@ export default function SettingsPage() {
                             {axisMetrics.map(metric => (
                                 <div key={metric.id} style={{ marginBottom: '8px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.08)', overflow: 'hidden' }}>
                                   {/* Metric Row */}
-                                  <div className="item-card small" style={{ margin: 0, borderRadius: 0, border: 'none' }}>
+                                  <div className="item-card small" style={{ margin: 0, borderRadius: 0, border: 'none', opacity: metric.active === false ? 0.5 : 1 }}>
                                       <div className="item-info" style={{ flex: 1 }}>
                                           <span className="item-name">{metric.name}</span>
                                           <span className="item-meta">Max: {metric.max_points}pts • Lvl {metric.difficulty_level} • {INPUT_TYPE_LABELS[metric.input_type] || INPUT_TYPE_LABELS.boolean}</span>
                                       </div>
                                       <div className="item-actions">
+                                          <label className="switch" style={{ transform: 'scale(0.8)', marginRight: '10px', verticalAlign: 'middle', marginTop: '-4px' }}>
+                                              <input 
+                                                  type="checkbox" 
+                                                  checked={metric.active !== false} 
+                                                  onChange={() => handleToggleMetric(metric.id, metric.active !== false)}
+                                              />
+                                              <span className="slider round"></span>
+                                          </label>
                                           <button
                                             onClick={() => toggleExpandMetric(metric.id)}
                                             style={{ background: 'rgba(99,102,241,0.15)', color: '#818cf8', border: 'none', borderRadius: '6px', padding: '4px 10px', cursor: 'pointer', fontSize: '12px' }}
