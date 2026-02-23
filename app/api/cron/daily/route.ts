@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import sql from '@/lib/db'
 import { sendTelegramMessage } from '@/lib/telegram'
-import { generateDailyAnalysis } from '@/lib/gemini'
+import { generateDailyAnalysis, generateStructuredInsights } from '@/lib/gemini'
 
 // Helper to format time (HH:MM:SS -> HH:MM)
 const fmtTime = (t: string) => t ? t.substring(0, 5) : ''
@@ -291,7 +291,8 @@ export async function GET(request: Request) {
                   mf.field_type,
                   dfe.value_int,
                   dfe.value_bool,
-                  dfe.value_text
+                  dfe.value_text,
+                  dfe.review
               FROM daily_field_entries dfe
               JOIN metric_fields mf ON dfe.field_id = mf.id
               JOIN metrics m ON dfe.metric_id = m.id
@@ -307,13 +308,39 @@ export async function GET(request: Request) {
                   type: sf.field_type,
                   value: sf.field_type === 'boolean' ? sf.value_bool
                       : sf.field_type === 'text' ? sf.value_text
-                      : sf.value_int
+                      : sf.value_int,
+                  review: sf.review || null
               })
           }
 
           // 3. AI Analysis (with sub-metric data + reviews + score values)
           const aiData = { ...reportData, items: metricItems, sub_metric_fields: subFieldsByMetric }
           const aiAnalysis = await generateDailyAnalysis(aiData)
+
+          // 3b. Extract structured insights and save to ai_insights
+          try {
+            const structured = await generateStructuredInsights(aiAnalysis)
+            const todayDateStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Tunis' })
+            await sql`
+              INSERT INTO ai_insights (user_id, report_type, report_date, tips, strategies, focus_areas, raw_text)
+              VALUES (
+                ${userId}, 'daily', ${todayDateStr},
+                ${sql.json(structured.tips)},
+                ${sql.json(structured.strategies)},
+                ${sql.json(structured.focus_areas)},
+                ${aiAnalysis}
+              )
+              ON CONFLICT (user_id, report_type, report_date)
+              DO UPDATE SET
+                tips = EXCLUDED.tips,
+                strategies = EXCLUDED.strategies,
+                focus_areas = EXCLUDED.focus_areas,
+                raw_text = EXCLUDED.raw_text,
+                created_at = NOW()
+            `
+          } catch (insightErr: any) {
+            console.error('[CRON] Failed to save structured insights:', insightErr.message)
+          }
 
           // 4. Format Message
           const score = Math.round(Number(reportData.final_score) || 0)

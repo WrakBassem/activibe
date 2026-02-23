@@ -2,7 +2,7 @@
 import { NextResponse } from 'next/server'
 import { getAuthUserId } from '@/lib/auth-utils'
 import sql from '@/lib/db'
-import { generateDailyAnalysis, generateWeeklyAnalysis } from '@/lib/gemini'
+import { generateDailyAnalysis, generateWeeklyAnalysis, generateStructuredInsights } from '@/lib/gemini'
 import { format, subDays, startOfWeek, endOfWeek } from 'date-fns'
 
 // POST /api/reports/generate
@@ -62,7 +62,8 @@ export async function POST(request: Request) {
                 mf.field_type,
                 dfe.value_int,
                 dfe.value_bool,
-                dfe.value_text
+                dfe.value_text,
+                dfe.review
             FROM daily_field_entries dfe
             JOIN metric_fields mf ON dfe.field_id = mf.id
             JOIN metrics m ON dfe.metric_id = m.id
@@ -79,7 +80,8 @@ export async function POST(request: Request) {
                 type: fv.field_type,
                 value: fv.field_type === 'boolean' ? fv.value_bool
                     : fv.field_type === 'text' ? fv.value_text
-                    : fv.value_int
+                    : fv.value_int,
+                review: fv.review || null
             })
         }
         
@@ -101,8 +103,31 @@ export async function POST(request: Request) {
         }
 
         reportMarkdown = await generateDailyAnalysis(dataPacket)
-    } 
-    else if (type === 'weekly') {
+
+        // Save structured insights to ai_insights
+        try {
+          const structured = await generateStructuredInsights(reportMarkdown)
+          await sql`
+            INSERT INTO ai_insights (user_id, report_type, report_date, tips, strategies, focus_areas, raw_text)
+            VALUES (
+              ${userId}, 'daily', ${formattedDate},
+              ${sql.json(structured.tips)},
+              ${sql.json(structured.strategies)},
+              ${sql.json(structured.focus_areas)},
+              ${reportMarkdown}
+            )
+            ON CONFLICT (user_id, report_type, report_date)
+            DO UPDATE SET
+              tips = EXCLUDED.tips,
+              strategies = EXCLUDED.strategies,
+              focus_areas = EXCLUDED.focus_areas,
+              raw_text = EXCLUDED.raw_text,
+              created_at = NOW()
+          `
+        } catch (insightErr: any) {
+          console.error('[Reports] Failed to save daily insights:', insightErr.message)
+        }
+    } else if (type === 'weekly') {
         // Fetch Weekly Data
         const start = format(startOfWeek(targetDate, { weekStartsOn: 1 }), 'yyyy-MM-dd')
         const end = format(endOfWeek(targetDate, { weekStartsOn: 1 }), 'yyyy-MM-dd')
@@ -148,7 +173,8 @@ export async function POST(request: Request) {
                 SUM(dfe.value_int) FILTER (WHERE mf.field_type = 'int') as total_value,
                 COUNT(*) FILTER (WHERE dfe.value_bool = true) as bool_true_days,
                 COUNT(*) FILTER (WHERE dfe.value_bool = false) as bool_false_days,
-                ARRAY_AGG(dfe.value_text) FILTER (WHERE dfe.value_text IS NOT NULL AND mf.field_type = 'text') as text_notes
+                ARRAY_AGG(dfe.value_text) FILTER (WHERE dfe.value_text IS NOT NULL AND mf.field_type = 'text') as text_notes,
+                ARRAY_AGG(dfe.review) FILTER (WHERE dfe.review IS NOT NULL AND dfe.review != '') as text_reviews
             FROM daily_field_entries dfe
             JOIN metric_fields mf ON dfe.field_id = mf.id
             JOIN metrics m ON dfe.metric_id = m.id
@@ -166,6 +192,7 @@ export async function POST(request: Request) {
             if (f.field_type === 'scale_0_5') { entry.avg = f.avg_value ? Number(f.avg_value).toFixed(1) : null }
             if (f.field_type === 'boolean') { entry.done_days = f.bool_true_days; entry.skipped_days = f.bool_false_days }
             if (f.field_type === 'text') { entry.notes = f.text_notes }
+            if (f.text_reviews && f.text_reviews.length > 0) { entry.reviews = f.text_reviews }
             weeklyFieldsByMetric[f.metric_name].push(entry)
         }
 
@@ -177,6 +204,30 @@ export async function POST(request: Request) {
         }
 
         reportMarkdown = await generateWeeklyAnalysis(dataPacket)
+
+        // Save structured insights to ai_insights
+        try {
+          const structured = await generateStructuredInsights(reportMarkdown)
+          await sql`
+            INSERT INTO ai_insights (user_id, report_type, report_date, tips, strategies, focus_areas, raw_text)
+            VALUES (
+              ${userId}, 'weekly', ${start},
+              ${sql.json(structured.tips)},
+              ${sql.json(structured.strategies)},
+              ${sql.json(structured.focus_areas)},
+              ${reportMarkdown}
+            )
+            ON CONFLICT (user_id, report_type, report_date)
+            DO UPDATE SET
+              tips = EXCLUDED.tips,
+              strategies = EXCLUDED.strategies,
+              focus_areas = EXCLUDED.focus_areas,
+              raw_text = EXCLUDED.raw_text,
+              created_at = NOW()
+          `
+        } catch (insightErr: any) {
+          console.error('[Reports] Failed to save weekly insights:', insightErr.message)
+        }
     }
 
     return NextResponse.json({

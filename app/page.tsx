@@ -15,16 +15,18 @@ export default function Dashboard() {
   const [suggestions, setSuggestions] = useState<any[]>([]);
   const [xpStatus, setXpStatus] = useState<any>(null);
   const [levelUpData, setLevelUpData] = useState<{ level: number; newTitles: string[] } | null>(null);
+  const [aiInsights, setAiInsights] = useState<any>(null);
 
   useEffect(() => {
     async function fetchData() {
       try {
-        const [kpiRes, todayRes, insightRes, suggestionsRes, xpRes] = await Promise.all([
+        const [kpiRes, todayRes, insightRes, suggestionsRes, xpRes, aiInsightsRes] = await Promise.all([
              fetch("/api/analytics"),
              fetch(`/api/daily`),
              fetch('/api/coach/insight'),
              fetch('/api/coach/adaptive'),
              fetch('/api/xp'),
+             fetch('/api/reports/insights?type=daily'),
         ]);
 
         const kpiData = await kpiRes.json();
@@ -32,12 +34,14 @@ export default function Dashboard() {
         const insightData = await insightRes.json();
         const suggestionsData = await suggestionsRes.json();
         const xpData = await xpRes.json();
+        const aiInsightsData = await aiInsightsRes.json();
 
         if (kpiData.success) setAnalytics(kpiData.data);
         if (todayData.success) setTodayLog(todayData.data.summary);
         if (insightData.success) setInsight(insightData.data);
         if (suggestionsData.success) setSuggestions(suggestionsData.data);
         if (xpData.success) setXpStatus(xpData.data);
+        if (aiInsightsData.success && aiInsightsData.data) setAiInsights(aiInsightsData.data);
 
       } catch (err: any) {
         console.error("Failed to load dashboard data", err);
@@ -215,6 +219,54 @@ export default function Dashboard() {
           </section>
       )}
 
+      {/* AI Insights Card */}
+      {aiInsights && (aiInsights.tips?.length > 0 || aiInsights.strategies?.length > 0 || aiInsights.focus_areas?.length > 0) && (
+        <section className="ai-insights-card">
+          <div className="ai-insights-header">
+            <span className="ai-insights-title">🤖 AI Coach Insights</span>
+            <span className="ai-insights-badge">
+              {aiInsights.report_type === 'weekly' ? '🗓 Last Week' : '📅 Yesterday'}
+            </span>
+          </div>
+
+          {aiInsights.focus_areas?.length > 0 && (
+            <div className="ai-insights-section">
+              <p className="ai-insights-label">🎯 Focus Areas</p>
+              <div className="focus-chips">
+                {aiInsights.focus_areas.map((f: any, i: number) => (
+                  <div key={i} className="focus-chip" title={f.reason}>
+                    <span className="focus-chip-area">{f.area}</span>
+                    {f.reason && <span className="focus-chip-reason">{f.reason}</span>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {aiInsights.tips?.length > 0 && (
+            <div className="ai-insights-section">
+              <p className="ai-insights-label">💡 Tips</p>
+              <ul className="ai-list">
+                {aiInsights.tips.map((tip: string, i: number) => (
+                  <li key={i} className="ai-list-item">→ {tip}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {aiInsights.strategies?.length > 0 && (
+            <div className="ai-insights-section">
+              <p className="ai-insights-label">⚡ Strategy</p>
+              <ul className="ai-list">
+                {aiInsights.strategies.map((s: string, i: number) => (
+                  <li key={i} className="ai-list-item">→ {s}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </section>
+      )}
+
       <style jsx>{`
         .dashboard {
           max-width: 600px;
@@ -366,6 +418,81 @@ export default function Dashboard() {
         @media (prefers-color-scheme: dark) {
              .streak-badge { background: #431407; color: #fdba74; }
         }
+
+        /* AI Insights Card */
+        .ai-insights-card {
+          background: linear-gradient(135deg, rgba(99,102,241,0.08) 0%, rgba(139,92,246,0.08) 100%);
+          border: 1px solid rgba(99,102,241,0.2);
+          border-radius: 16px;
+          padding: 1.25rem;
+          margin-top: 1.5rem;
+        }
+        @media (prefers-color-scheme: dark) {
+          .ai-insights-card {
+            background: linear-gradient(135deg, rgba(99,102,241,0.12) 0%, rgba(139,92,246,0.12) 100%);
+            border-color: rgba(99,102,241,0.3);
+          }
+        }
+        .ai-insights-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          margin-bottom: 1rem;
+        }
+        .ai-insights-title {
+          font-size: 0.95rem;
+          font-weight: 700;
+          color: #4f46e5;
+        }
+        @media (prefers-color-scheme: dark) { .ai-insights-title { color: #a5b4fc; } }
+        .ai-insights-badge {
+          font-size: 0.7rem;
+          background: rgba(99,102,241,0.15);
+          color: #6366f1;
+          padding: 0.2rem 0.6rem;
+          border-radius: 99px;
+          font-weight: 600;
+        }
+        @media (prefers-color-scheme: dark) { .ai-insights-badge { color: #a5b4fc; } }
+        .ai-insights-section { margin-bottom: 0.875rem; }
+        .ai-insights-section:last-child { margin-bottom: 0; }
+        .ai-insights-label {
+          font-size: 0.72rem;
+          font-weight: 700;
+          text-transform: uppercase;
+          letter-spacing: 0.06em;
+          color: #6b7280;
+          margin-bottom: 0.5rem;
+        }
+        .focus-chips { display: flex; flex-direction: column; gap: 0.4rem; }
+        .focus-chip {
+          background: rgba(99,102,241,0.1);
+          border: 1px solid rgba(99,102,241,0.15);
+          border-radius: 10px;
+          padding: 0.5rem 0.75rem;
+        }
+        .focus-chip-area {
+          display: block;
+          font-size: 0.85rem;
+          font-weight: 600;
+          color: #4338ca;
+        }
+        @media (prefers-color-scheme: dark) { .focus-chip-area { color: #c7d2fe; } }
+        .focus-chip-reason {
+          display: block;
+          font-size: 0.75rem;
+          color: #6b7280;
+          margin-top: 0.15rem;
+          line-height: 1.4;
+        }
+        .ai-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.35rem; }
+        .ai-list-item {
+          font-size: 0.85rem;
+          color: #374151;
+          line-height: 1.5;
+          padding-left: 0.25rem;
+        }
+        @media (prefers-color-scheme: dark) { .ai-list-item { color: #d1d5db; } }
       `}</style>
     </div>
   );

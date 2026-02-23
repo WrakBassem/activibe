@@ -331,13 +331,14 @@ export async function POST(request: Request) {
       for (const fv of field_values) {
         if (!fv.field_id || !fv.metric_id) continue
         await sql`
-          INSERT INTO daily_field_entries (user_id, metric_id, field_id, date, value_int, value_bool, value_text)
-          VALUES (${userId}, ${fv.metric_id}, ${fv.field_id}, ${logDate}, ${fv.value_int ?? null}, ${fv.value_bool ?? null}, ${fv.value_text ?? null})
+          INSERT INTO daily_field_entries (user_id, metric_id, field_id, date, value_int, value_bool, value_text, review)
+          VALUES (${userId}, ${fv.metric_id}, ${fv.field_id}, ${logDate}, ${fv.value_int ?? null}, ${fv.value_bool ?? null}, ${fv.value_text ?? null}, ${fv.review ?? null})
           ON CONFLICT (user_id, field_id, date)
           DO UPDATE SET
             value_int = EXCLUDED.value_int,
             value_bool = EXCLUDED.value_bool,
-            value_text = EXCLUDED.value_text
+            value_text = EXCLUDED.value_text,
+            review = EXCLUDED.review
         `
       }
     }

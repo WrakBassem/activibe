@@ -31,6 +31,7 @@ type FieldValue = {
   value_int?: number | null;
   value_bool?: boolean | null;
   value_text?: string | null;
+  review?: string | null;
 };
 
 type DailyEntry = {
@@ -127,6 +128,7 @@ export default function DailyLogPage() {
                   value_int: fv.value_int,
                   value_bool: fv.value_bool,
                   value_text: fv.value_text,
+                  review: fv.review,
                 };
               });
               setFieldValues(fvMap);
@@ -163,11 +165,21 @@ export default function DailyLogPage() {
   };
 
   const handleFieldChange = (fieldId: string, metricId: string, field: MetricField, rawValue: any) => {
-    const fv: FieldValue = { field_id: fieldId, metric_id: metricId };
-    if (field.field_type === 'boolean') fv.value_bool = Boolean(rawValue);
-    else if (field.field_type === 'text') fv.value_text = String(rawValue);
-    else fv.value_int = rawValue === '' ? null : Number(rawValue);
-    setFieldValues(prev => ({ ...prev, [fieldId]: fv }));
+    setFieldValues(prev => {
+      const existing = prev[fieldId] || { field_id: fieldId, metric_id: metricId };
+      const updated = { ...existing };
+      if (field.field_type === 'boolean') updated.value_bool = Boolean(rawValue);
+      else if (field.field_type === 'text') updated.value_text = String(rawValue);
+      else updated.value_int = rawValue === '' ? null : Number(rawValue);
+      return { ...prev, [fieldId]: updated };
+    });
+  };
+
+  const handleFieldReview = (fieldId: string, metricId: string, text: string) => {
+    setFieldValues(prev => {
+      const existing = prev[fieldId] || { field_id: fieldId, metric_id: metricId };
+      return { ...prev, [fieldId]: { ...existing, review: text } };
+    });
   };
 
   const handleScoreValue = (metricId: string, value: number) => {
@@ -445,6 +457,13 @@ export default function DailyLogPage() {
                                                 style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', padding: '6px 10px', color: '#e5e7eb', fontSize: '13px', width: '100%', resize: 'vertical' }}
                                               />
                                             )}
+                                            <input
+                                              type="text"
+                                              value={fv?.review || ''}
+                                              onChange={e => handleFieldReview(field.id, metric.id, e.target.value)}
+                                              placeholder="Review submetric... (optional)"
+                                              style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '6px', padding: '6px 8px', color: '#d1d5db', fontSize: '12px', marginTop: '2px', width: '100%' }}
+                                            />
                                           </div>
                                         );
                                       })}

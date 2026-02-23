@@ -306,7 +306,7 @@ Analyze EACH metric item from the data, paying attention to input_type:
   - For metrics scoring above 80% of max scale, highlight as 💪 strength
   - Report streak data if available
 
-If sub_metric_fields data exists, also analyze those (listing values, flagging low scales, etc.)
+If sub_metric_fields data exists, also analyze those (listing values, flagging low scales, etc.) and especially focus on any reviews provided for these sub-metrics.
 
 📝 SECTION 3 — USER VOICE (Review Mining)
 This is GOLDEN DATA. The user wrote personal reviews/notes for some metrics.
@@ -430,6 +430,7 @@ export async function generateWeeklyAnalysis(data: any): Promise<string> {
   - For scale fields: report the weekly average and flag if below target
   - For boolean fields: report completion rate
   - For text notes: summarize themes
+  - For text reviews: summarize recurring themes and sentiments from the sub-metric reviews
   - Identify STRONGEST and WEAKEST sub-metrics
   
   ## 📊 System Calibration
@@ -454,3 +455,55 @@ export async function generateWeeklyAnalysis(data: any): Promise<string> {
       return "⚠️ AI Analysis failed. Please check logs."
     }
   }
+
+// Extract structured insights from an existing analysis text
+// Returns { tips, strategies, focus_areas } as a typed object
+export interface AiInsightStructured {
+  tips: string[]
+  strategies: string[]
+  focus_areas: { area: string; reason: string }[]
+}
+
+export async function generateStructuredInsights(
+  rawAnalysis: string
+): Promise<AiInsightStructured> {
+  const fallback: AiInsightStructured = { tips: [], strategies: [], focus_areas: [] }
+
+  if (!genAI || !rawAnalysis || rawAnalysis.startsWith('⚠️')) return fallback
+
+  try {
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
+
+    const prompt = `You are a data extractor. Read the following performance analysis report and extract ONLY:
+1. "tips" — 2-3 specific, actionable tips for the user (short bullet phrases, not full sentences)
+2. "strategies" — 1-3 medium-term strategy recommendations (slightly broader than tips)
+3. "focus_areas" — 1-3 areas the user should focus on, each with a brief reason
+
+Respond ONLY with a valid JSON object in this exact format, no markdown fences, no explanation:
+{"tips":["tip1","tip2"],"strategies":["strategy1"],"focus_areas":[{"area":"Area Name","reason":"Why to focus here"}]}
+
+ANALYSIS TO EXTRACT FROM:
+${rawAnalysis.substring(0, 4000)}`
+
+    const result = await model.generateContent(prompt)
+    const text = result.response.text().trim()
+
+    // Strip any accidental markdown fences
+    const cleaned = text.replace(/^```json\s*/i, '').replace(/```\s*$/, '').trim()
+    const parsed = JSON.parse(cleaned)
+
+    return {
+      tips: Array.isArray(parsed.tips) ? parsed.tips.slice(0, 3) : [],
+      strategies: Array.isArray(parsed.strategies) ? parsed.strategies.slice(0, 3) : [],
+      focus_areas: Array.isArray(parsed.focus_areas)
+        ? parsed.focus_areas.slice(0, 3).map((f: any) => ({
+            area: String(f.area || ''),
+            reason: String(f.reason || ''),
+          }))
+        : [],
+    }
+  } catch (error: any) {
+    console.error('[Gemini] Structured insights extraction error:', error)
+    return fallback
+  }
+}
