@@ -3,6 +3,7 @@ import sql from '@/lib/db'
 import { getAuthUserId } from '@/lib/auth-utils'
 import { format } from 'date-fns'
 import { awardXP, XP_PER_LOG, XP_PER_PERFECT_SCORE } from '@/lib/gamification'
+import { checkAndUnlockAchievements } from '@/lib/achievements'
 
 export const dynamic = 'force-dynamic';
 
@@ -343,10 +344,10 @@ export async function POST(request: Request) {
       }
     }
 
-    // 8. Award XP (only on FIRST submission for this date, skip on re-submissions)
+    // 8. Award Base XP and Attribute XP (only on FIRST submission for this date)
     let xpResult = null
+    let questXpResult = null
     try {
-      // Check if XP was already awarded for this date
       const existingXP = await sql`
         SELECT id FROM user_xp_log 
         WHERE user_id = ${userId} 
@@ -355,7 +356,6 @@ export async function POST(request: Request) {
       `
 
       if (existingXP.length === 0) {
-        // First submission for this date — award XP
         let xpToAward = XP_PER_LOG
         let xpReason = `daily_log:${logDate}`
         if (finalScore === 100) {
@@ -363,10 +363,98 @@ export async function POST(request: Request) {
           xpReason = `daily_log:${logDate}:perfect`
         }
         xpResult = await awardXP(userId, xpReason, xpToAward)
+
+        // 8b. Award Attribute Specific XP
+        const completedMetrics = processedEntries.filter(e => e.completed)
+        if (completedMetrics.length > 0) {
+            // First, find the RPG attribute for each completed metric
+            const metricDetails = await sql`
+                SELECT id, rpg_attribute FROM metrics
+                WHERE id = ANY(${sql.array(completedMetrics.map(e => e.metric_id))}::uuid[])
+            `
+            
+            // Map the metric ID to the attribute
+            const attributeMap: Record<string, string> = {}
+            metricDetails.forEach(m => {
+                attributeMap[m.id] = m.rpg_attribute || 'vitality'
+            })
+
+            // Aggregate XP to award per attribute
+            const xpPerAttribute: Record<string, number> = {}
+            completedMetrics.forEach(entry => {
+                const attr = attributeMap[entry.metric_id]
+                if (attr) {
+                    // Give 10 XP per minute spent, or default 25 XP if no time logged
+                    const timeXP = (entry.time_spent && entry.time_spent > 0) ? entry.time_spent * 10 : 25
+                    xpPerAttribute[attr] = (xpPerAttribute[attr] || 0) + timeXP
+                }
+            })
+
+            // Upsert into user_attributes table
+            for (const [attrName, xpToAdd] of Object.entries(xpPerAttribute)) {
+                await sql`
+                    INSERT INTO user_attributes (user_id, attribute_name, total_xp, level)
+                    VALUES (${userId}, ${attrName}, ${xpToAdd}, 1)
+                    ON CONFLICT (user_id, attribute_name)
+                    DO UPDATE SET 
+                        total_xp = user_attributes.total_xp + EXCLUDED.total_xp,
+                        last_updated = CURRENT_TIMESTAMP
+                `
+
+                // Basic leveling logic: Level = floor(sqrt(total_xp) / 10) + 1
+                // We'll update level immediately after adding XP
+                await sql`
+                    UPDATE user_attributes
+                    SET level = GREATEST(1, FLOOR(SQRT(total_xp) / 10) + 1)
+                    WHERE user_id = ${userId} AND attribute_name = ${attrName}
+                `
+            }
+        }
       }
-      // else: XP already awarded for this date, skip (user is editing their log)
     } catch (xpErr: any) {
-      console.warn('[POST /api/daily] XP award failed (non-fatal):', xpErr.message)
+      console.warn('[POST /api/daily] Base/Attribute XP award failed:', xpErr.message)
+    }
+
+    // 9. Update Active Quests
+    try {
+        const completedMetrics = processedEntries.filter(e => e.completed).map(e => e.metric_id);
+        
+        if (completedMetrics.length > 0) {
+            // Fetch quests matching these metrics
+            const relevantQuests = await sql`
+                SELECT id, target_value, current_value, xp_reward 
+                FROM quests 
+                WHERE user_id = ${userId} 
+                AND status = 'active' 
+                AND metric_id = ANY(${sql.array(completedMetrics)}::uuid[])
+            `;
+
+            for (const quest of relevantQuests) {
+                const newValue = quest.current_value + 1;
+                const isCompleted = newValue >= quest.target_value;
+                const newStatus = isCompleted ? 'completed' : 'active';
+
+                await sql`
+                    UPDATE quests 
+                    SET current_value = ${newValue}, status = ${newStatus}
+                    WHERE id = ${quest.id}
+                `;
+
+                if (isCompleted) {
+                    questXpResult = await awardXP(userId, `quest_completed:${quest.id}`, quest.xp_reward);
+                }
+            }
+        }
+    } catch (qErr: any) {
+         console.warn('[POST /api/daily] Quest update failed:', qErr.message)
+    }
+
+    // 10. Evaluate Achievements
+    let newlyUnlockedAchievements: any[] = []
+    try {
+        newlyUnlockedAchievements = await checkAndUnlockAchievements(userId);
+    } catch (achErr) {
+        console.warn('[POST /api/daily] Achievement evaluation failed:', achErr)
     }
 
     return NextResponse.json({
@@ -378,6 +466,8 @@ export async function POST(request: Request) {
           debug_scores: axisScores,
           total_time: totalTimeSpent,
           xp: xpResult,
+          quest_xp: questXpResult,
+          achievements: newlyUnlockedAchievements
       }
     }, { status: 201 })
 

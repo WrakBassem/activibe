@@ -7,6 +7,11 @@ import { StreakCard } from "./components/charts/StreakCard";
 import { WeeklyProgress } from "./components/charts/WeeklyProgress";
 import { ActivityHeatmap } from "./components/charts/ActivityHeatmap";
 import { AxisRadarChart } from "./components/charts/AxisRadarChart";
+import { RippleEffectSlider } from "./components/charts/RippleEffectSlider";
+import { GrowthAvatar } from "./components/GrowthAvatar";
+import { HabitConstellation } from "./components/charts/HabitConstellation";
+import { QuestBoard } from "./components/QuestBoard";
+import { MorningModal } from "./components/MorningModal";
 
 export default function Dashboard() {
   const [analytics, setAnalytics] = useState<any>(null);
@@ -18,17 +23,19 @@ export default function Dashboard() {
   const [xpStatus, setXpStatus] = useState<any>(null);
   const [levelUpData, setLevelUpData] = useState<{ level: number; newTitles: string[] } | null>(null);
   const [aiInsights, setAiInsights] = useState<any>(null);
+  const [correlations, setCorrelations] = useState<any[]>([]);
 
   useEffect(() => {
     async function fetchData() {
       try {
-        const [kpiRes, todayRes, insightRes, suggestionsRes, xpRes, aiInsightsRes] = await Promise.all([
+        const [kpiRes, todayRes, insightRes, suggestionsRes, xpRes, aiInsightsRes, corrRes] = await Promise.all([
              fetch("/api/analytics"),
              fetch(`/api/daily`),
              fetch('/api/coach/insight'),
              fetch('/api/coach/adaptive'),
              fetch('/api/xp'),
              fetch('/api/reports/insights?type=daily'),
+             fetch('/api/analytics/correlations')
         ]);
 
         const kpiData = await kpiRes.json();
@@ -37,6 +44,7 @@ export default function Dashboard() {
         const suggestionsData = await suggestionsRes.json();
         const xpData = await xpRes.json();
         const aiInsightsData = await aiInsightsRes.json();
+        const corrData = await corrRes.json();
 
         if (kpiData.success) setAnalytics(kpiData.data);
         if (todayData.success) setTodayLog(todayData.data.summary);
@@ -44,6 +52,7 @@ export default function Dashboard() {
         if (suggestionsData.success) setSuggestions(suggestionsData.data);
         if (xpData.success) setXpStatus(xpData.data);
         if (aiInsightsData.success && aiInsightsData.data) setAiInsights(aiInsightsData.data);
+        if (corrData.success) setCorrelations(corrData.data);
 
       } catch (err: any) {
         console.error("Failed to load dashboard data", err);
@@ -94,6 +103,8 @@ export default function Dashboard() {
 
   return (
     <div className="dashboard">
+      <MorningModal />
+      
       {/* Dynamic Status Banner */}
       {dynamicStatus && (
           <div className={`status-banner ${dynamicStatus.type}`}>
@@ -110,7 +121,21 @@ export default function Dashboard() {
           <p className="dashboard-subtitle">{new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}</p>
         </div>
         <div className="flex gap-2 items-center">
-            <Link href="/settings" className="icon-btn" title="Settings">⚙️</Link>
+            <Link href="/focus" className="icon-btn tooltip-container" title="Deep Focus Forge">
+                <span className="text-xl">⏳</span>
+            </Link>
+            <Link href="/achievements" className="icon-btn tooltip-container" title="Hall of Fame">
+                <span className="text-xl">🏆</span>
+            </Link>
+            <Link href="/magazine" className="icon-btn tooltip-container" title="Weekly Oracle Magazine">
+                <span className="text-xl">📜</span>
+            </Link>
+            <Link href="/skills" className="icon-btn tooltip-container" title="Mastery Skill Trees">
+                <span className="text-xl">⚔️</span>
+            </Link>
+            <Link href="/settings" className="icon-btn tooltip-container" title="Settings">
+                <span className="text-xl">⚙️</span>
+            </Link>
             <UserAvatar />
         </div>
       </header>
@@ -118,10 +143,12 @@ export default function Dashboard() {
       {/* XP & Level Bar (Modernized) */}
       {xpStatus && (
         <div className="xp-container">
-          {/* Level Badge */}
-          <div className="level-badge">
-            <div className="level-badge-inner">{xpStatus.level}</div>
-          </div>
+          {/* Dynamic Growth Avatar */}
+          <GrowthAvatar 
+              level={xpStatus.level} 
+              statusType={dynamicStatus?.type as "success" | "danger" | "momentum" | undefined} 
+          />
+
           <div className="xp-content">
             <div className="xp-header">
               <span className="xp-level-text">Level {xpStatus.level}</span>
@@ -146,6 +173,9 @@ export default function Dashboard() {
         </div>
       )}
       
+      {/* RPG Quest Board */}
+      <QuestBoard />
+
       {/* Coach Insight Banner */}
       {insight && (
           <div className={`insight-banner ${insight.type}`}>
@@ -233,6 +263,11 @@ export default function Dashboard() {
           </section>
       )}
 
+      {/* Habit Constellation Map */}
+      <section className="fadeIn">
+        <HabitConstellation />
+      </section>
+
       {/* AI Insights Card */}
       {aiInsights && (aiInsights.tips?.length > 0 || aiInsights.strategies?.length > 0 || aiInsights.focus_areas?.length > 0) && (
         <section className="ai-insights-card fadeIn">
@@ -292,7 +327,47 @@ export default function Dashboard() {
         </section>
       )}
 
+      {/* Ripple Effect Sandbox */}
+      {correlations && correlations.length > 0 ? (
+          <RippleEffectSlider correlations={correlations} />
+      ) : (
+          <div className="ripple-sandbox placeholder-sandbox">
+             <div className="sandbox-header">
+                <h3 className="section-title flex items-center gap-2">
+                  <span className="sandbox-icon">🎛️</span>
+                  Sandbox: Actions & Consequences
+                </h3>
+                <p className="sandbox-subtitle">Not enough data to calculate habit ripples yet.</p>
+             </div>
+             <div className="placeholder-content">
+                 <div className="placeholder-icon">🌱</div>
+                 <p>Log a few more days of data. Once the AI detects patterns between your habits, interactive sliders will appear here to help you diagnose what drives your success.</p>
+             </div>
+          </div>
+      )}
+
       <style jsx>{`
+        .placeholder-sandbox {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+            padding: 3rem 1.5rem;
+            border-style: dashed;
+            border-width: 2px;
+            background: rgba(255,255,255,0.3);
+            border-color: rgba(0,0,0,0.1);
+            border-radius: 20px;
+            margin-top: 2rem;
+        }
+        @media (prefers-color-scheme: dark) {
+            .placeholder-sandbox { background: rgba(0,0,0,0.2); border-color: rgba(255,255,255,0.1); }
+        }
+        .placeholder-sandbox .sandbox-header { margin-bottom: 2rem; display: flex; flex-direction: column; align-items: center; }
+        .placeholder-content { max-width: 400px; color: #6b7280; font-size: 0.95rem; line-height: 1.6; }
+        .placeholder-icon { font-size: 3rem; margin-bottom: 1rem; opacity: 0.8; filter: grayscale(0.5); }
+        @media (prefers-color-scheme: dark) { .placeholder-content { color: #9ca3af; } }
+
         /* Global Animations */
         @keyframes fadeInScale {
             0% { opacity: 0; transform: translateY(10px) scale(0.98); }
@@ -386,26 +461,6 @@ export default function Dashboard() {
                 box-shadow: 0 4px 6px -1px rgba(0,0,0,0.2);
             }
         }
-        .level-badge {
-            background: linear-gradient(135deg, #8b5cf6, #3b82f6);
-            padding: 2px;
-            border-radius: 50%;
-            box-shadow: 0 4px 10px rgba(139, 92, 246, 0.3);
-        }
-        .level-badge-inner {
-            background: #111827;
-            border-radius: 50%;
-            width: 44px;
-            height: 44px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 1.1rem;
-            font-weight: 800;
-            color: white;
-            border: 2px solid transparent;
-        }
-        @media (prefers-color-scheme: dark) { .level-badge-inner { background: #000; } }
         .xp-content { flex: 1; }
         .xp-header { display: flex; justify-content: space-between; margin-bottom: 6px; align-items: flex-end; }
         .xp-level-text { font-size: 0.85rem; color: #8b5cf6; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; }
@@ -663,6 +718,7 @@ export default function Dashboard() {
             top: 0; left: 0; right: 0; height: 4px;
             background: linear-gradient(90deg, #6366f1, #a855f7);
         }
+
         @media (prefers-color-scheme: dark) {
           .ai-insights-card {
             background: linear-gradient(135deg, rgba(99,102,241,0.08) 0%, rgba(139,92,246,0.08) 100%);

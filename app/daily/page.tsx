@@ -79,6 +79,9 @@ export default function DailyLogPage() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [journalText, setJournalText] = useState("");
+  const [parsing, setParsing] = useState(false);
+  const [autoFillFeedback, setAutoFillFeedback] = useState<string[]>([]);
 
   // Fetch Metrics & Existing Log
   useEffect(() => {
@@ -251,6 +254,93 @@ export default function DailyLogPage() {
       }
   };
 
+  const handleAutoFill = async () => {
+      if (!journalText.trim()) return;
+      try {
+          setParsing(true);
+          const res = await fetch('/api/log/nlp/parse', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ text: journalText, date })
+          });
+          const json = await res.json();
+          if (json.success && json.data) {
+              const { predicted_entries, predicted_fields } = json.data;
+              const newFeedback: string[] = [];
+
+              // 1. Build Feedback array synchronously
+              predicted_entries.forEach((p: any) => {
+                  const metric = metrics.find(m => m.id === p.metric_id);
+                  if (metric) {
+                      const changes = [];
+                      if (p.completed) changes.push('Detected'); 
+                      if (p.time_spent_minutes) changes.push(`${p.time_spent_minutes}m`);
+                      if (p.score_value) changes.push(`Score: ${p.score_value}`);
+                      if (p.review) changes.push(`Review drafted`);
+                      if (changes.length > 0) newFeedback.push(`${metric.name} (${changes.join(', ')})`);
+                  }
+              });
+
+              predicted_fields.forEach((f: any) => {
+                  let fieldName = "Submetric";
+                  for (const mId in metricFields) {
+                      const found = metricFields[mId].find(mf => mf.id === f.field_id);
+                      if (found) { fieldName = found.label || found.name; break; }
+                  }
+
+                  const changes = [];
+                  if (f.value_int !== null && f.value_int !== undefined) changes.push(`${f.value_int}`);
+                  if (f.value_bool !== null && f.value_bool !== undefined) changes.push(`${f.value_bool ? 'Yes' : 'No'}`);
+                  if (f.value_text !== null && f.value_text !== undefined) changes.push(`Text added`);
+                  
+                  if (changes.length > 0) newFeedback.push(`↳ ${fieldName}: ${changes.join(', ')}`);
+              });
+
+              // 2. Update React States
+              setEntries(prev => {
+                  const next = { ...prev };
+                  predicted_entries.forEach((p: any) => {
+                      next[p.metric_id] = {
+                          ...next[p.metric_id],
+                          metric_id: p.metric_id,
+                          completed: p.completed ?? next[p.metric_id]?.completed ?? false,
+                          time_spent_minutes: p.time_spent_minutes ?? next[p.metric_id]?.time_spent_minutes ?? null,
+                          score_value: p.score_value ?? next[p.metric_id]?.score_value ?? null,
+                          review: p.review ?? next[p.metric_id]?.review ?? '',
+                          score_awarded: next[p.metric_id]?.score_awarded ?? 0
+                      };
+                  });
+                  return next;
+              });
+
+              setFieldValues(prev => {
+                  const next = { ...prev };
+                  predicted_fields.forEach((f: any) => {
+                      next[f.field_id] = {
+                          ...next[f.field_id],
+                          field_id: f.field_id,
+                          metric_id: f.metric_id,
+                          value_int: f.value_int ?? next[f.field_id]?.value_int ?? null,
+                          value_bool: f.value_bool ?? next[f.field_id]?.value_bool ?? null,
+                          value_text: f.value_text ?? next[f.field_id]?.value_text ?? null,
+                          review: f.review ?? next[f.field_id]?.review ?? null,
+                      };
+                  });
+                  return next;
+              });
+              
+              setJournalText(""); // clear upon success to avoid clutter
+              setAutoFillFeedback(newFeedback.length > 0 ? newFeedback : ["Oracle parsed your entry but couldn't deduce any specific habits or they were already marked."]);
+          } else {
+              alert(json.error || "AI Oracle failed to parse journal.");
+          }
+      } catch (e) {
+          console.error("NLP Error", e);
+      } finally {
+          setParsing(false);
+      }
+  }
+
   // --- HELPER: Date Filtering ---
   const isDateInRange = (itemDateStr: string | undefined, startDateStr?: string, endDateStr?: string) => {
     if (!itemDateStr) return true;
@@ -289,9 +379,45 @@ export default function DailyLogPage() {
           <div className="score-ring">
               <span className="score-val">{summary?.total_score || 0}</span>
               <span className="score-label">Score</span>
-          </div>
+            </div>
           <div className="mode-badge">
               Status: <strong>{summary?.mode || "Unknown"}</strong>
+          </div>
+      </div>
+
+      {/* AI Journal Input */}
+      <div className="journal-section">
+          <div className="journal-header flex justify-between items-center mb-2">
+              <h3 className="font-bold text-gray-200">Freeform Journal</h3>
+              <p className="text-xs text-gray-500 italic">Type your day. The AI will check the boxes.</p>
+          </div>
+          <textarea
+              className="journal-input"
+              rows={3}
+              placeholder="e.g. Woke up at 7am, ran for 45 mins, meditated, but ate horribly today (2/5)..."
+              value={journalText}
+              onChange={(e) => setJournalText(e.target.value)}
+          />
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <div style={{ flex: 1, marginRight: '1rem' }}>
+                  {autoFillFeedback.length > 0 && (
+                      <div className="feedback-box">
+                          <h4 style={{ fontSize: '11px', textTransform: 'uppercase', color: '#10b981', fontWeight: 700, marginBottom: '6px' }}>✨ Oracle Updates:</h4>
+                          <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+                              {autoFillFeedback.map((msg, idx) => (
+                                  <li key={idx} style={{ fontSize: '12px', color: '#d1d5db', marginBottom: '2px' }}>{msg}</li>
+                              ))}
+                          </ul>
+                      </div>
+                  )}
+              </div>
+              <button 
+                  className={`magic-btn ${parsing ? 'pulsing' : ''}`}
+                  onClick={handleAutoFill}
+                  disabled={parsing || !journalText.trim()}
+              >
+                  {parsing ? "Parsing with Oracle..." : "✨ Magic Auto-Fill"}
+              </button>
           </div>
       </div>
 
@@ -576,7 +702,7 @@ export default function DailyLogPage() {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 2rem;
+            margin-bottom: 1.5rem;
             box-shadow: 0 4px 15px rgba(99, 102, 241, 0.3);
         }
         .score-ring {
@@ -591,8 +717,77 @@ export default function DailyLogPage() {
         .score-label { font-size: 0.75rem; text-transform: uppercase; opacity: 0.9; }
         .mode-badge { font-size: 1rem; }
 
+        /* Journal Section */
+        .journal-section {
+            background: var(--background);
+            border: 1px solid #e5e7eb;
+            border-radius: 12px;
+            padding: 1rem;
+            margin-bottom: 2rem;
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.02);
+        }
+        @media (prefers-color-scheme: dark) {
+            .journal-section { background: #111; border-color: #333; }
+        }
+        .journal-input {
+            width: 100%;
+            background: transparent;
+            border: 1px solid #d1d5db;
+            border-radius: 8px;
+            padding: 0.75rem;
+            color: var(--foreground);
+            font-family: inherit;
+            resize: vertical;
+            margin-bottom: 0.75rem;
+        }
+        @media (prefers-color-scheme: dark) {
+            .journal-input { border-color: #444; }
+        }
+        .journal-input:focus {
+            outline: none;
+            border-color: #8b5cf6;
+            box-shadow: 0 0 0 2px rgba(139, 92, 246, 0.2);
+        }
+        .magic-btn {
+            background: linear-gradient(90deg, #ec4899, #8b5cf6);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            padding: 0.5rem 1rem;
+            font-weight: 600;
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            float: right;
+        }
+        .magic-btn:hover:not(:disabled) {
+            filter: brightness(1.1);
+            box-shadow: 0 0 10px rgba(236, 72, 153, 0.4);
+        }
+        .magic-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            background: #6b7280;
+        }
+        .pulsing {
+            animation: pulseBg 1.5s infinite;
+        }
+        @keyframes pulseBg {
+            0% { opacity: 0.8; }
+            50% { opacity: 1; filter: brightness(1.2); }
+            100% { opacity: 0.8; }
+        }
+
+        .feedback-box {
+            background: rgba(16, 185, 129, 0.1);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            border-radius: 8px;
+            padding: 10px 12px;
+            margin-top: 4px;
+        }
+
         /* Metrics */
-        .axis-section { margin-bottom: 2rem; }
+        .axis-section { margin-bottom: 2rem; clear: both; }
         .axis-header {
             font-size: 0.9rem;
             text-transform: uppercase;

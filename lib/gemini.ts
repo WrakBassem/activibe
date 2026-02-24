@@ -457,6 +457,204 @@ export async function generateWeeklyAnalysis(data: any): Promise<string> {
   }
 
 // Extract structured insights from an existing analysis text
+export interface WeeklyMagazine {
+  title: string;
+  theme_color: string;
+  theme: string;
+  highlights: { title: string; description: string }[];
+  narrative: string;
+  intention: string;
+}
+
+export type ParsedJournalData = {
+    predicted_entries: {
+        metric_id: string;
+        completed: boolean;
+        time_spent_minutes: number | null;
+        score_value: number | null;
+        review: string | null;
+    }[];
+    predicted_fields: {
+        field_id: string;
+        metric_id: string;
+        value_int: number | null;
+        value_bool: boolean | null;
+        value_text: string | null;
+        review: string | null;
+    }[];
+};
+
+export async function parseJournalEntry(journalText: string, metricsContext: any[], fieldsContext: any[]): Promise<ParsedJournalData | null> {
+    if (!genAI) {
+        console.warn("⚠️ AI Analysis unavailable (API Key missing).");
+        return null;
+    }
+
+    try {
+        const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash', generationConfig: { responseMimeType: "application/json" } })
+
+        const prompt = `You are a highly analytical NLP parsing agent. Your job is to read a user's natural language journal entry and map their statements to a strict pre-defined schema of habits/metrics.
+
+═══════════════════════════════════════
+AVAILABLE METRICS SCHEMA:
+═══════════════════════════════════════
+${JSON.stringify(metricsContext, null, 2)}
+
+═══════════════════════════════════════
+AVAILABLE SUBMETRIC FIELDS SCHEMA:
+═══════════════════════════════════════
+${JSON.stringify(fieldsContext, null, 2)}
+
+═══════════════════════════════════════
+USER'S RAW JOURNAL ENTRY:
+═══════════════════════════════════════
+"""${journalText}"""
+
+═══════════════════════════════════════
+YOUR TASK:
+═══════════════════════════════════════
+Read the journal entry. If the user explicitly or implicitly indicates they completed one of the 'metrics', add it to the 'predicted_entries' array.
+**CRITICAL: Use high-level semantic, fuzzy inference.** The user will rarely use the exact formal metric name. E.g., if they say "did web dev", match it to a metric named "Coding" or "Work". If they say "got out of bed", match it to "Morning Routine". Be smart, lenient, and read between the lines!
+- For metrics with input_type 'boolean', set completed: true, score_value: null.
+- For metrics with input_type 'emoji_5' (1-5 scale) or 'scale_0_5', try to deduce the score (e.g. "I felt awful" -> score_value: 1. "It was perfect" -> score_value: 5). If they completed it but don't specify quality, default to the max points or a middle value.
+- If they mention duration (e.g., "ran for 45 mins"), set time_spent_minutes.
+- Set 'review' to a short excerpt of their text relating to that habit.
+
+Do the same for 'predicted_fields' matching the submetric fields. If they answered a submetric (e.g. "drank 3 cups of coffee" where field is "Cups of Coffee" integer), map it to value_int.
+
+Output EXACTLY AND ONLY this JSON structure (Do NOT wrap in markdown \`\`\`json block):
+{
+  "predicted_entries": [
+    {
+      "metric_id": "uuid-from-schema",
+      "completed": true,
+      "time_spent_minutes": 45,
+      "score_value": null,
+      "review": "Brief note based on their text"
+    }
+  ],
+  "predicted_fields": [
+    {
+      "field_id": "uuid-from-schema",
+      "metric_id": "uuid-assoc",
+      "value_int": 3,
+      "value_bool": null,
+      "value_text": null,
+      "review": null
+    }
+  ]
+}
+`
+        const result = await model.generateContent(prompt)
+        const text = result.response.text().trim()
+        return JSON.parse(text) as ParsedJournalData
+    } catch (error: any) {
+        console.error('[Gemini] Journal Parser error:', error)
+        return null;
+    }
+}
+
+export async function generateWeeklyMagazine(data: any): Promise<WeeklyMagazine | null> {
+  if (!genAI) {
+      console.warn("⚠️ AI Analysis unavailable (API Key missing).");
+      return null;
+  }
+
+  try {
+      const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash', generationConfig: { responseMimeType: "application/json" } })
+
+      const prompt = `You are an elite gamification and storytelling AI. You are creating a "Weekly Oracle Magazine" for the user.
+This is meant to be an editorial, beautiful, and inspiring recap of their completed week.
+
+═══════════════════════════════════════
+WEEKLY DATA (JSON):
+═══════════════════════════════════════
+${JSON.stringify(data, null, 2)}
+
+═══════════════════════════════════════
+YOUR TASK:
+═══════════════════════════════════════
+Analyze the user's data and write a cohesive, narrative-driven newsletter.
+
+Output EXACTLY AND ONLY this JSON structure (Do NOT wrap in markdown \`\`\`json block):
+{
+  "title": "A catchy, magazine-style title for the week (e.g. 'The Iron Fortitude', 'Week of the Scholar')",
+  "theme_color": "A hex color code representing the week's vibe (e.g. #ef4444 for intense action, #3b82f6 for focus)",
+  "theme": "A 1-sentence description of what this week was fundamentally about.",
+  "highlights": [
+      { "title": "Highlight 1 (e.g. 'Flawless Sleep')", "description": "1-2 sentences detailing the victory." },
+      { "title": "Highlight 2", "description": "Another specific data-backed highlight." },
+      { "title": "Highlight 3", "description": "A final highlight or a 'battle fought' if they struggled but tried." }
+  ],
+  "narrative": "A 2-3 paragraph editorial piece summarizing their journey this week. Make it sound like a narrator in an RPG recounting the hero's deeds. Weave the metrics into the story.",
+  "intention": "A 1-sentence powerful intention or quest objective for the upcoming week based on where they fell short."
+}
+`
+
+      const result = await model.generateContent(prompt)
+      const text = result.response.text().trim()
+      return JSON.parse(text) as WeeklyMagazine
+  } catch (error: any) {
+      console.error('[Gemini] Weekly Magazine error:', error)
+      return null;
+  }
+}
+
+export interface MorningBriefing {
+  greeting: string;
+  theme: string;
+  priorities: {
+    habit_name: string;
+    reason: string;
+  }[];
+}
+
+export async function generateMorningBriefing(userData: any): Promise<MorningBriefing | null> {
+  if (!genAI) {
+      console.warn("⚠️ AI Analysis unavailable (API Key missing).");
+      return null;
+  }
+
+  try {
+      const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash', generationConfig: { responseMimeType: "application/json" } })
+
+      const prompt = `You are a stoic, strategic, and highly analytical AI Coach. You are delivering a concise "Morning Briefing" to the user as they wake up and start their day.
+      
+═══════════════════════════════════════
+USER'S RECENT DATA (JSON):
+═══════════════════════════════════════
+${JSON.stringify(userData, null, 2)}
+
+═══════════════════════════════════════
+YOUR TASK:
+═══════════════════════════════════════
+Analyze the user's data (yesterday's log, their active quests, and their lowest performing axes/metrics). 
+Your sole objective is to cut through the noise and give them EXACTLY 3 specific habits they must prioritize today to maintain balance or achieve growth.
+
+Output EXACTLY AND ONLY this JSON structure (Do NOT wrap in markdown \`\`\`json block):
+{
+  "greeting": "A short, powerful, stoic greeting. E.g., 'The sun is up, Commander. Time to forge the day.'",
+  "theme": "A single focus word for the day based on their data (e.g., 'Discipline', 'Recovery', 'Consistency')",
+  "priorities": [
+    {
+      "habit_name": "The exact name of a real metric from their data to focus on",
+      "reason": "1 concise sentence explaining WHY based on their data (e.g., 'You skipped this yesterday' or 'This aligns with your active quest.')"
+    },
+    // exactly 3 items here
+  ]
+}
+`
+
+      const result = await model.generateContent(prompt)
+      const text = result.response.text().trim()
+      return JSON.parse(text) as MorningBriefing
+  } catch (error: any) {
+      console.error('[Gemini] Morning Briefing error:', error)
+      return null;
+  }
+}
+
+// Extract structured insights from an existing analysis text
 // Returns { tips, strategies, focus_areas } as a typed object
 export interface AiInsightStructured {
   tips: string[]
