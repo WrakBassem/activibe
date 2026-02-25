@@ -86,6 +86,12 @@ export function QuestBoard() {
       <div className="board-header">
         <h3 className="section-title flex items-center gap-2">
           <span className="icon text-yellow-400">📜</span> Active Quests
+          <span className="relative group cursor-help text-sm ml-2">
+            <span className="opacity-60 hover:opacity-100 transition-opacity">ℹ️</span>
+            <div className="absolute left-0 top-full mt-2 w-72 p-3 text-sm bg-gray-900 border border-indigo-500 rounded text-gray-200 hidden group-hover:block z-20 shadow-xl font-normal leading-relaxed normal-case tracking-normal">
+              <strong>Quests</strong> are AI-generated short-term challenges targeting your weakest habits. Complete a quest before it expires to earn bonus XP. You can have up to 3 active at once. Click "+ Seek New Quest" to generate a new one.
+            </div>
+          </span>
         </h3>
         <div className="flex gap-3 items-center">
             {activeQuests.length > 0 && (

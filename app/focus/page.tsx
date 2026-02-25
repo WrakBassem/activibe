@@ -85,6 +85,20 @@ export default function FocusForge() {
                             msgs.push(`❤️ ${b.current_health} HP LEFT`);
                         }
                     }
+
+                    if (json.data.campaign) {
+                        const camp = json.data.campaign;
+                        if (camp.defeated) {
+                            setBossReward({
+                                xp: camp.reward.xp,
+                                gold: camp.reward.gold,
+                                item: camp.reward.item,
+                                boss_name: camp.reward.boss_name
+                            } as any);
+                        } else if (camp.damage > 0) {
+                            msgs.push(`🛡️ Story Boss: -${camp.damage} HP!`);
+                        }
+                    }
                     
                     setXpRewards(msgs.length > 0 ? msgs : ["Focus Session Complete!"]);
                 } else {
@@ -158,6 +172,20 @@ export default function FocusForge() {
                     </button>
                 </div>
             </nav>
+
+            {/* Collapsible Help */}
+            <div className="z-10 relative flex justify-center w-full px-4 mb-4">
+                <details className="w-full max-w-md bg-indigo-900/20 border border-indigo-500/30 rounded-xl text-sm text-indigo-100 group">
+                    <summary className="p-3 cursor-pointer select-none flex items-center gap-3 font-semibold text-white outline-none">
+                        <span className="text-xl">ℹ️</span>
+                        <span>What is the Focus Forge?</span>
+                        <span className="ml-auto opacity-50 text-xs">▼ Click to expand</span>
+                    </summary>
+                    <div className="p-4 pt-1 text-indigo-200/90 leading-relaxed border-t border-indigo-500/10 mt-1">
+                        <strong>Deep Focus Forge:</strong> Use the Pomodoro timer to run focused work sessions. Complete a full session to earn XP and advance quest progress. Ambient sounds help you stay in flow. Hardcore Mode doubles your XP gains but doubles penalties too.
+                    </div>
+                </details>
+            </div>
 
             {/* YouTube Embed for Lofi Background (Hidden visually, audio plays) */}
             {isPlayingSound && (

@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
@@ -14,11 +14,22 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+export const viewport: Viewport = {
+  themeColor: '#0a0a0a',
+};
+
 export const metadata: Metadata = {
-  title: "Activibe",
-  description: "Activibe",
+  title: "Activibe RPG",
+  description: "Your life is an RPG. Level up your habits.",
+  manifest: "/manifest.json",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "Activibe",
+  },
   icons: {
-    icon: '/favicon.ico',
+    icon: '/icon.svg',
+    apple: '/icon.svg',
   },
 };
 

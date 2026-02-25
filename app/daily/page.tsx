@@ -263,7 +263,21 @@ export default function DailyLogPage() {
                   } else if (b.type === 'damage') {
                       setMessage(prev => (prev ? prev + ' ' : '') + `💥 Dealt ${b.damage} DMG to ${b.boss_name}! (${b.current_health} HP left)`);
                   } else if (b.type === 'spawn') {
-                      setMessage(prev => (prev ? prev + ' ' : '') + `👹 WARNING: ${b.boss_name} HAS SPAWNED!`);
+                      setMessage(prev => (prev ? prev + ' ' : '') + `👹 WARNING: ${b.name} HAS SPAWNED!`);
+                  }
+              }
+
+              if (data.data.campaign) {
+                  const camp = data.data.campaign;
+                  if (camp.defeated) {
+                      setBossReward({
+                          xp: camp.reward.xp,
+                          gold: camp.reward.gold,
+                          item: camp.reward.item,
+                          boss_name: camp.reward.boss_name
+                      } as any);
+                  } else if (camp.damage > 0) {
+                      setMessage(prev => (prev ? prev + ' ' : '') + `🛡️ Adventure Damage: -${camp.damage} HP!`);
                   }
               }
               setTimeout(() => setMessage(null), 3000);
@@ -394,17 +408,29 @@ export default function DailyLogPage() {
       
       <header className="daily-header">
         <Link href="/" className="back-link">← Dashboard</Link>
-        <div className="date-picker">
-            <label>Date:</label>
-            <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+        <div className="flex gap-4 items-center">
+            <div className="date-picker">
+                <label>Date:</label>
+                <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+            </div>
+            <button 
+                onClick={() => alert("Welcome to the Daily Log!\n\n1. Use the Freeform Journal to let AI auto-fill your day.\n2. Tap metrics to score them.\n3. The total score at the top calculates your 'Growth' vs 'Burnout' status.")}
+                className="w-8 h-8 rounded-full bg-indigo-900/50 text-indigo-300 border border-indigo-500/30 flex items-center justify-center hover:bg-indigo-800 transition-colors"
+                title="How to use the Daily Log"
+            >
+                ❓
+            </button>
         </div>
       </header>
 
       {/* Summary Card */}
       <div className="summary-card">
-          <div className="score-ring">
+          <div className="score-ring relative group cursor-help">
               <span className="score-val">{summary?.total_score || 0}</span>
               <span className="score-label">Score</span>
+              <div className="absolute top-full mt-2 w-48 p-2 text-xs bg-gray-900 border border-indigo-500 rounded text-gray-200 hidden group-hover:block z-10 shadow-xl text-center leading-relaxed">
+                  Your daily score is calculated from all completed metrics weighted by difficulty. Aim for 70+ for Growth mode.
+              </div>
             </div>
           <div className="mode-badge">
               Status: <strong>{summary?.mode || "Unknown"}</strong>
@@ -414,8 +440,16 @@ export default function DailyLogPage() {
       {/* AI Journal Input */}
       <div className="journal-section">
           <div className="journal-header flex justify-between items-center mb-2">
-              <h3 className="font-bold text-gray-200">Freeform Journal</h3>
-              <p className="text-xs text-gray-500 italic">Type your day. The AI will check the boxes.</p>
+              <h3 className="font-bold text-gray-200 flex items-center gap-2">
+                  Freeform Journal
+                  <span className="relative group cursor-help text-sm">
+                      <span className="opacity-70">ℹ️</span>
+                      <div className="absolute left-0 top-full mt-2 w-64 p-3 text-xs bg-gray-900 border border-indigo-500 rounded text-gray-200 hidden group-hover:block z-20 shadow-xl font-normal leading-relaxed">
+                          Type your day in plain English. The AI Oracle reads it and auto-checks your habits — no clicking required.
+                      </div>
+                  </span>
+              </h3>
+              <p className="text-xs text-gray-500 italic hidden sm:block">Type your day. The AI will check the boxes.</p>
           </div>
           <textarea
               className="journal-input"
@@ -588,7 +622,7 @@ export default function DailyLogPage() {
                                       <textarea
                                         value={entry.review || ''}
                                         onChange={e => handleReview(metric.id, e.target.value)}
-                                        placeholder="Write your review... (optional)"
+                                        placeholder="Optional reflection — used by AI to generate smarter insights..."
                                         rows={2}
                                         style={{
                                           width: '100%', resize: 'vertical',

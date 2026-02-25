@@ -70,6 +70,15 @@ export default function SkillsPage() {
                 </div>
             </header>
 
+            {/* Info Banner */}
+            <div className="bg-indigo-900/30 border border-indigo-500/30 rounded-xl p-4 mb-6 flex gap-4 items-start text-sm text-indigo-100">
+                <span className="text-xl">ℹ️</span>
+                <div>
+                    <strong className="block mb-1 text-white">How Mastery Trees work:</strong>
+                    Each attribute (Strength, Intellect, Vitality...) grows when you log habits linked to that life axis. Log consistently → earn XP → unlock tree nodes → rise in level. Your level here reflects long-term commitment, not single-day performance.
+                </div>
+            </div>
+
             <div className="skills-layout">
                 {/* Left Side: Attribute Selection */}
                 <div className="attribute-list">
@@ -244,7 +253,7 @@ function SkillTree({ attribute }: { attribute: Attribute }) {
                         key={node.id}
                         className={`tree-node ${node.unlocked ? 'unlocked' : 'locked'}`}
                         style={{ left: `${node.x}%`, top: `${node.y}%` }}
-                        title={node.unlocked ? `Unlocked at Level ${node.reqLevel}` : `Requires Level ${node.reqLevel}`}
+                        title={node.unlocked ? `Unlocked at Level ${node.reqLevel}` : `Reach Level ${node.reqLevel} in this attribute to unlock this milestone`}
                     >
                         <div className="node-inner bg-gradient-to-br"></div>
                     </div>

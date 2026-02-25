@@ -1,0 +1,19 @@
+{
+  "name": "Activibe RPG",
+  "short_name": "Activibe",
+  "description": "Your life is an RPG. Track habits, defeat bosses, and level up.",
+  "theme_color": "#0a0a0a",
+  "background_color": "#0a0a0a",
+  "display": "standalone",
+  "orientation": "portrait",
+  "scope": "/",
+  "start_url": "/",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "192x192 512x512 any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

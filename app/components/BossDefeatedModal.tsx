@@ -59,6 +59,13 @@ export function BossDefeatedModal({ reward, onClose }: BossDefeatedModalProps) {
                             <span className="reward-label">EXPERIENCE</span>
                             <span className="reward-value">+{reward.xp} XP</span>
                         </div>
+                        
+                        {(reward as any).gold && (
+                            <div className="reward-pill gold-reward">
+                                <span className="reward-label">TREASURE</span>
+                                <span className="reward-value">+{(reward as any).gold} GOLD</span>
+                            </div>
+                        )}
 
                         {reward.item && (
                             <div className="boss-item-reward">

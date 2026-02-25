@@ -1,4 +1,3 @@
-
 const nextConfig: import('next').NextConfig = {
   typescript: {
     ignoreBuildErrors: true,

@@ -14,6 +14,11 @@ import { QuestBoard } from "./components/QuestBoard";
 import { MorningModal } from "./components/MorningModal";
 import { StatusGauge } from "./components/charts/StatusGauge";
 import { canAccessFeature, FEATURE_LOCKS } from "@/lib/permissions";
+// ─── Tutorial system ───────────────────────────────────────────────────────
+import { TutorialDialog } from "./components/TutorialDialog";
+import { TutorialTooltip } from "./components/TutorialTooltip";
+import { useTutorial } from "./components/TutorialProvider";
+import { NotificationPrompt } from "./components/NotificationPrompt";
 
 const SMOKE_BOMB_EFFECT = 'hide_negatives_24h';
 
@@ -32,6 +37,8 @@ export default function Dashboard() {
   const [activeBoss, setActiveBoss] = useState<any>(null);
   const [smugglerActive, setSmugglerActive] = useState(false);
   const [userRole, setUserRole] = useState<string | null>(null);
+  // Tutorial hook — exposes startTour() for the help button
+  const { startTour } = useTutorial();
 
   useEffect(() => {
     async function fetchData() {
@@ -157,13 +164,21 @@ export default function Dashboard() {
         smokeBombActive={isSmokeBombActive} 
       />
 
+      {/* PWA Push Notification Request */}
+      <NotificationPrompt />
+
+      {/* Welcome dialog (shown once to new users) + spotlight tour overlay */}
+      <TutorialDialog />
+      <TutorialTooltip />
+
       {/* Header */}
       <header className="dashboard-header">
         <div>
           <h1 className="dashboard-title">Dashboard</h1>
           <p className="dashboard-subtitle">{new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}</p>
         </div>
-        <div className="flex gap-2 items-center">
+        {/* data-tutorial-id targets the icon row for step 8 of the tour */}
+        <div className="flex gap-2 items-center" data-tutorial-id="header-icons">
             {xpStatus?.gold !== undefined && (
                 <div className="flex items-center bg-black/40 px-3 py-1 mr-2 rounded-full border border-yellow-500/30 tooltip-container" title="Focus Coins (Gold)">
                     <span className="text-yellow-400 font-bold mr-1">{xpStatus.gold}</span>
@@ -193,19 +208,44 @@ export default function Dashboard() {
             <Link href="/magazine" className="icon-btn tooltip-container" title="Weekly Oracle Magazine">
                 <span className="text-xl">📜</span>
             </Link>
-            <Link href="/skills" className="icon-btn tooltip-container" title="Mastery Skill Trees">
+            <Link href="/campaign" className="icon-btn tooltip-container" title="Story Campaign">
                 <span className="text-xl">⚔️</span>
             </Link>
+            <Link href="/skills" className="icon-btn tooltip-container" title="Mastery Skill Trees">
+                <span className="text-xl">🔮</span>
+            </Link>
+            {userRole === 'admin' && (
+                <button 
+                  onClick={async () => {
+                    const res = await fetch('/api/notifications/test', { method: 'POST' });
+                    const data = await res.json();
+                    alert(data.message || data.error);
+                  }}
+                  className="icon-btn tooltip-container relative text-indigo-400" 
+                  title="Test Push Notification"
+                >
+                    <span className="text-xl">📡</span>
+                </button>
+            )}
             <Link href="/settings" className="icon-btn tooltip-container" title="Settings">
                 <span className="text-xl">⚙️</span>
             </Link>
+            {/* Tour trigger button — always visible in the header */}
+            <button
+              onClick={startTour}
+              className="icon-btn tooltip-container"
+              title="Start Guided Tour"
+              aria-label="Start tutorial tour"
+            >
+              <span className="text-xl">❓</span>
+            </button>
             <UserAvatar />
         </div>
       </header>
 
-      {/* XP & Level Bar (Modernized) */}
+      {/* XP & Level Bar (Modernized) — tour step 1 */}
       {xpStatus && (
-        <div className="xp-container">
+        <div className="xp-container" data-tutorial-id="xp-bar">
           {/* Dynamic Growth Avatar */}
           <GrowthAvatar 
               level={xpStatus.level} 
@@ -251,12 +291,14 @@ export default function Dashboard() {
         </div>
       )}
       
-      {/* RPG Quest Board */}
-      <QuestBoard />
+      {/* RPG Quest Board — tour step 2 */}
+      <div data-tutorial-id="quest-board">
+        <QuestBoard />
+      </div>
 
-      {/* Coach Insight Banner */}
+      {/* Coach Insight Banner — tour step 3 */}
       {insight && (
-          <div className={`insight-banner ${insight.type}`}>
+          <div className={`insight-banner ${insight.type}`} data-tutorial-id="coach-insight">
               <span className="insight-icon">
                   {insight.type === 'warning' ? '⚠️' : insight.type === 'danger' ? '🛑' : insight.type === 'success' ? '💡' : 'ℹ️'}
               </span>
@@ -264,8 +306,8 @@ export default function Dashboard() {
           </div>
       )}
       
-      {/* Action Bar */}
-      <section className="action-bar">
+      {/* Action Bar — tour step 4 */}
+      <section className="action-bar" data-tutorial-id="action-bar">
           <Link href="/daily" className="action-btn primary group">
             <span className="btn-icon transition-transform group-hover:scale-110">📝</span>
             <span>{todayLog ? "Edit Today's Log" : "Log Today"}</span>
@@ -280,10 +322,16 @@ export default function Dashboard() {
               <span>AI Coach</span>
             </Link>
           </div>
+          {userRole === 'admin' && (
+              <Link href="/admin" className="action-btn secondary group bg-purple-500/10 border-purple-500/30 text-purple-400 hover:bg-purple-500/20 hover:border-purple-500/50 mt-1">
+                <span className="btn-icon transition-transform group-hover:scale-110 filter drop-shadow-[0_0_8px_rgba(168,85,247,0.5)]">🛡️</span>
+                <span className="font-bold tracking-tight">Overseer Command Center</span>
+              </Link>
+          )}
       </section>
 
-      {/* KPI Grid */}
-      <section className="kpi-grid">
+      {/* KPI Grid — tour step 5 */}
+      <section className="kpi-grid" data-tutorial-id="kpi-grid">
            {/* Streak Card */}
            <StreakCard streak={analytics?.global_streak || 0} label="Global Streak" />
            
@@ -303,13 +351,13 @@ export default function Dashboard() {
            </div>
       </section>
 
-      {/* New Activity Heatmap */}
-      <section className="chart-section fadeIn">
+      {/* Activity Heatmap — tour step 6 */}
+      <section className="chart-section fadeIn" data-tutorial-id="heatmap">
           {analytics?.heatmap_scores && <ActivityHeatmap data={analytics.heatmap_scores} />}
       </section>
 
-      {/* Charts Grid */}
-      <section className="charts-grid fadeIn">
+      {/* Charts Grid — tour step 7 */}
+      <section className="charts-grid fadeIn" data-tutorial-id="charts-grid">
           {/* Weekly Progress Chart */}
           <div className="chart-wrapper">
             {analytics?.weekly_scores && <WeeklyProgress data={analytics.weekly_scores} />}

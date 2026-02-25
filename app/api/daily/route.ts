@@ -5,6 +5,7 @@ import { format } from 'date-fns'
 import { awardXP, deductXP, XP_PER_LOG, XP_PER_PERFECT_SCORE, awardGold } from '@/lib/gamification'
 import { checkAndUnlockAchievements } from '@/lib/achievements'
 import { getActiveBoss, dealBossDamage, checkBossSpawn, processDailyBossPenalty } from '@/lib/bosses'
+import { getCampaignStatus, dealCampaignDamage } from '@/lib/campaign'
 
 export const dynamic = 'force-dynamic';
 
@@ -52,8 +53,8 @@ export async function GET(request: Request) {
         await processDailyBossPenalty(userId)
     }
     
-    // Always fetch active boss info if it exists
-    activeBoss = await getActiveBoss(userId)
+    // 5. Campaign Status
+    const campaignStatus = await getCampaignStatus(userId)
 
     return NextResponse.json({
       success: true,
@@ -61,7 +62,8 @@ export async function GET(request: Request) {
           summary: summary[0] || null,
           entries: entries,
           field_values: fieldValues,
-          active_boss: activeBoss
+          active_boss: activeBoss,
+          campaign_status: campaignStatus
       }
     })
   } catch (error: any) {
@@ -380,6 +382,7 @@ export async function POST(request: Request) {
     let xpResult = null
     let questXpResult = null
     let lootDrop = null // Variable to store awarded item
+    let campaignFeedback: any = null
 
     try {
       const existingXP = await sql`
@@ -427,6 +430,21 @@ export async function POST(request: Request) {
           }
       } catch (bossErr) {
           console.warn('[POST /api/daily] Boss logic failed:', bossErr)
+      }
+
+      // --- CAMPAIGN LOGIC ---
+      try {
+          if (finalScore > 0) {
+              const result = await dealCampaignDamage(userId, finalScore)
+              campaignFeedback = {
+                  damage: finalScore,
+                  defeated: result.defeated,
+                  reward: result.reward,
+                  remaining_health: result.remaining_health
+              }
+          }
+      } catch (campErr) {
+          console.warn('[POST /api/daily] Campaign logic failed:', campErr)
       }
 
       if (existingXP.length === 0) {
@@ -571,7 +589,8 @@ export async function POST(request: Request) {
           quest_xp: questXpResult,
           achievements: newlyUnlockedAchievements,
           loot_drop: lootDrop,
-          boss: bossFeedback
+          boss: bossFeedback,
+          campaign: campaignFeedback
       }
     }, { status: 201 })
 

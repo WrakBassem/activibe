@@ -205,6 +205,15 @@ export default function CoachPage() {
         <Link href="/coach/onboarding" className="settings-link">⚙️</Link>
       </header>
 
+      {/* Intro Box */}
+      <div className="bg-indigo-900/20 border border-indigo-500/30 rounded-xl p-4 mx-4 mt-2 mb-4 flex gap-4 items-start text-sm text-indigo-100">
+          <span className="text-xl">ℹ️</span>
+          <div>
+              <strong className="block mb-1 text-white">Your AI Coach</strong>
+              analyzes your past 7 days and identifies patterns you might miss. It generates personalized goals, adaptive difficulty suggestions, and daily insights. The more you log, the smarter it gets.
+          </div>
+      </div>
+
       {/* Tabs */}
       <div className="coach-tabs">
         <button

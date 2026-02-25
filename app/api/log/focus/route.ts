@@ -4,6 +4,7 @@ import { getAuthUserId } from '@/lib/auth-utils'
 import { awardXP, awardGold } from '@/lib/gamification'
 import { format } from 'date-fns'
 import { getActiveBoss, dealBossDamage } from '@/lib/bosses'
+import { dealCampaignDamage } from '@/lib/campaign'
 
 export async function POST(request: Request) {
     try {
@@ -136,12 +137,39 @@ export async function POST(request: Request) {
             console.warn('[POST /api/log/focus] Boss damage failed:', bossErr);
         }
 
+        // 6. Campaign Damage Logic
+        let campaignFeedback = null;
+        try {
+            // Every minute focused deals 1 DMG * multiplier (same as adversarial boss)
+            const gauntletsPassives = await sql`
+                SELECT up.stacks
+                FROM user_passives up
+                JOIN items i ON up.item_id = i.id
+                WHERE i.name = 'Focus Gauntlets' AND up.user_id = ${userId}
+            `;
+            let activeMultiplier = 1;
+            if (gauntletsPassives.length > 0) {
+                activeMultiplier = 1 + (gauntletsPassives[0].stacks * 0.5);
+            }
+            const damage = Math.round(minutes_focused * activeMultiplier);
+            const result = await dealCampaignDamage(userId, damage);
+            campaignFeedback = {
+                damage,
+                defeated: result.defeated,
+                reward: result.reward,
+                remaining_health: result.remaining_health
+            }
+        } catch (campErr) {
+            console.warn('[POST /api/log/focus] Campaign damage failed:', campErr);
+        }
+
         return NextResponse.json({
             success: true,
             data: {
                 total_xp_awarded: totalXpAwarded,
                 messages: messages,
-                boss: bossFeedback
+                boss: bossFeedback,
+                campaign: campaignFeedback
             }
         });
 
