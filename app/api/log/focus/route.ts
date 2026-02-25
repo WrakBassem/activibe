@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server'
 import sql from '@/lib/db'
 import { getAuthUserId } from '@/lib/auth-utils'
-import { awardXP } from '@/lib/gamification'
+import { awardXP, awardGold } from '@/lib/gamification'
 import { format } from 'date-fns'
+import { getActiveBoss, dealBossDamage } from '@/lib/bosses'
 
 export async function POST(request: Request) {
     try {
@@ -19,6 +20,10 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: 'Valid minutes_focused is required' }, { status: 400 });
         }
 
+        // Fetch Hardcore status
+        const userStatus = await sql`SELECT hardcore_mode_active FROM users WHERE id = ${userId}`;
+        const isHardcore = userStatus[0]?.hardcore_mode_active || false;
+
         let totalXpAwarded = 0;
         let messages: string[] = [];
 
@@ -27,6 +32,10 @@ export async function POST(request: Request) {
         await awardXP(userId, `focus_session:${Date.now()}`, baseXP);
         totalXpAwarded += baseXP;
         messages.push(`Earned ${baseXP} Global XP for Focus Session.`);
+        
+        // Award Gold (1 Gold per minute focused)
+        await awardGold(userId, minutes_focused);
+        messages.push(`Found ${minutes_focused} Gold 🪙.`);
 
         if (metric_id) {
             // Find metric details
@@ -46,7 +55,9 @@ export async function POST(request: Request) {
                 `;
 
                 // 3. Award Attribute-Specific XP (e.g., 10 XP per minute)
-                const attrXP = minutes_focused * 10;
+                let attrXP = minutes_focused * 10;
+                if (isHardcore) attrXP *= 2;
+
                 await sql`
                     INSERT INTO user_attributes (user_id, attribute_name, total_xp, level)
                     VALUES (${userId}, ${attributeName}, ${attrXP}, 1)
@@ -93,11 +104,44 @@ export async function POST(request: Request) {
             }
         }
 
+        // 5. Boss Damage Logic
+        let bossFeedback = null;
+        try {
+            // Check for Focus Gauntlets
+            const gauntletsPassives = await sql`
+                SELECT up.stacks
+                FROM user_passives up
+                JOIN items i ON up.item_id = i.id
+                WHERE i.name = 'Focus Gauntlets' AND up.user_id = ${userId}
+            `;
+            let activeMultiplier = 1;
+            if (gauntletsPassives.length > 0) {
+                // 1 stack = 1.5x, 2 stacks = 2.0x
+                activeMultiplier = 1 + (gauntletsPassives[0].stacks * 0.5);
+            }
+
+            // Every minute focused deals 1 DMG * multiplier
+            const damage = Math.round(minutes_focused * activeMultiplier);
+            const result = await dealBossDamage(userId, damage);
+            
+            if (result.defeated) {
+                bossFeedback = { type: 'defeat', ...result.reward };
+            } else {
+                const active = await getActiveBoss(userId);
+                if (active) {
+                    bossFeedback = { type: 'damage', damage, current_health: active.current_health, boss_name: active.name };
+                }
+            }
+        } catch (bossErr) {
+            console.warn('[POST /api/log/focus] Boss damage failed:', bossErr);
+        }
+
         return NextResponse.json({
             success: true,
             data: {
                 total_xp_awarded: totalXpAwarded,
-                messages: messages
+                messages: messages,
+                boss: bossFeedback
             }
         });
 

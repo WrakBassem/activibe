@@ -1,10 +1,9 @@
-
 import { NextResponse } from 'next/server'
 import { getAuthUserId } from '@/lib/auth-utils'
 import { analyzeDifficulty } from '@/lib/adaptive'
 import sql from '@/lib/db'
 
-// GET /api/coach/adaptive - Get suggestions
+// GET /api/coach/adaptive - Get suggestions for current user
 export async function GET() {
   try {
     const userId = await getAuthUserId()
@@ -27,7 +26,7 @@ export async function GET() {
   }
 }
 
-// POST /api/coach/adaptive/apply - Apply a suggestion
+// POST /api/coach/adaptive - Apply a suggestion (owner-only)
 export async function POST(request: Request) {
     try {
         const userId = await getAuthUserId()
@@ -42,11 +41,17 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
         }
 
-        await sql`
+        // Ownership check — only update if this metric belongs to the current user
+        const result = await sql`
             UPDATE metrics
             SET difficulty_level = ${new_difficulty}
-            WHERE id = ${metric_id}
+            WHERE id = ${metric_id} AND user_id = ${userId}
+            RETURNING id
         `
+
+        if (result.length === 0) {
+            return NextResponse.json({ error: 'Metric not found or access denied' }, { status: 403 })
+        }
 
         return NextResponse.json({ success: true, message: 'Difficulty updated' })
 

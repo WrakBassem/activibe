@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import sql from '@/lib/db'
 import { getAuthUserId } from '@/lib/auth-utils'
 
-// GET /api/cycles - List all cycles with their weights
+// GET /api/cycles - List all cycles with their weights (per-user)
 export async function GET() {
   try {
     const userId = await getAuthUserId()
@@ -10,23 +10,22 @@ export async function GET() {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    // Fetch cycles
     const cycles = await sql`
       SELECT * FROM priority_cycles 
+      WHERE user_id = ${userId}
       ORDER BY start_date DESC
     `
 
-    // Fetch weights for all cycles
-    // (Optimization: could be a join, but separate queries are often cleaner for 1-to-many formatting)
     const weights = await sql`
         SELECT 
             aw.*,
             a.name as axis_name
         FROM axis_weights aw
         JOIN axes a ON aw.axis_id = a.id
+        JOIN priority_cycles pc ON aw.cycle_id = pc.id
+        WHERE pc.user_id = ${userId}
     `
 
-    // Group weights by cycle_id
     const cyclesWithWeights = cycles.map(cycle => ({
         ...cycle,
         weights: weights.filter(w => w.cycle_id === cycle.id)
@@ -45,7 +44,7 @@ export async function GET() {
   }
 }
 
-// POST /api/cycles - Create new cycle (optionally with weights)
+// POST /api/cycles - Create new cycle for the current user
 export async function POST(request: Request) {
   try {
     const userId = await getAuthUserId()
@@ -55,7 +54,6 @@ export async function POST(request: Request) {
 
     const body = await request.json()
     
-    // Validation
     if (!body.name || !body.start_date || !body.end_date) {
       return NextResponse.json(
         { error: 'Name, Start Date, and End Date are required' },
@@ -63,20 +61,16 @@ export async function POST(request: Request) {
       )
     }
 
-    // Transaction-like approach (manual rollback if needed, or just sequential)
-    // 1. Create Cycle
     const newCycle = await sql`
-      INSERT INTO priority_cycles (name, start_date, end_date)
-      VALUES (${body.name}, ${body.start_date}, ${body.end_date})
+      INSERT INTO priority_cycles (name, start_date, end_date, user_id)
+      VALUES (${body.name}, ${body.start_date}, ${body.end_date}, ${userId})
       RETURNING *
     `
     const cycleId = newCycle[0].id
 
-    // 2. Create Weights if provided
     let createdWeights: any[] = [];
     if (body.weights && Array.isArray(body.weights)) {
         for (const w of body.weights) {
-            // w should have { axis_id, weight_percentage }
             if (w.axis_id && w.weight_percentage !== undefined) {
                 const newWeight = await sql`
                     INSERT INTO axis_weights (cycle_id, axis_id, weight_percentage)
@@ -105,7 +99,7 @@ export async function POST(request: Request) {
   }
 }
 
-// PUT /api/cycles - Update cycle (including weights replacement)
+// PUT /api/cycles - Update cycle (owner-only)
 export async function PUT(request: Request) {
     try {
         const userId = await getAuthUserId()
@@ -119,7 +113,6 @@ export async function PUT(request: Request) {
             return NextResponse.json({ error: 'ID is required' }, { status: 400 })
         }
 
-        // 1. Update Cycle details
         const updateData: any = {};
         if (body.name !== undefined) updateData.name = body.name;
         if (body.start_date !== undefined) updateData.start_date = body.start_date;
@@ -130,26 +123,22 @@ export async function PUT(request: Request) {
             updatedCycle = await sql`
                 UPDATE priority_cycles
                 SET ${sql(updateData)}
-                WHERE id = ${body.id}
+                WHERE id = ${body.id} AND user_id = ${userId}
                 RETURNING *
             `
         } else {
-            // If no fields to update, just fetch existing
-            updatedCycle = await sql`SELECT * FROM priority_cycles WHERE id = ${body.id}`
+            updatedCycle = await sql`
+                SELECT * FROM priority_cycles WHERE id = ${body.id} AND user_id = ${userId}
+            `
         }
 
         if (updatedCycle.length === 0) {
-            return NextResponse.json({ error: 'Cycle not found' }, { status: 404 })
+            return NextResponse.json({ error: 'Cycle not found or access denied' }, { status: 404 })
         }
 
-        // 2. Update Weights if provided
-        // Strategy: Delete existing and insert new if "weights" array is present
         let currentWeights: any[] = [];
         if (body.weights && Array.isArray(body.weights)) {
-            // Delete old weights
             await sql`DELETE FROM axis_weights WHERE cycle_id = ${body.id}`
-
-            // Insert new weights
             for (const w of body.weights) {
                 if (w.axis_id && w.weight_percentage !== undefined) {
                     const newWeight = await sql`
@@ -161,8 +150,7 @@ export async function PUT(request: Request) {
                 }
             }
         } else {
-            // If weights not provided, fetch existing to return consistent object
-             currentWeights = await sql`SELECT * FROM axis_weights WHERE cycle_id = ${body.id}`
+            currentWeights = await sql`SELECT * FROM axis_weights WHERE cycle_id = ${body.id}`
         }
 
         return NextResponse.json({
@@ -177,6 +165,39 @@ export async function PUT(request: Request) {
         console.error('[PUT /api/cycles] Error:', error)
         return NextResponse.json(
             { error: 'Failed to update cycle', details: error.message },
+            { status: 500 }
+        )
+    }
+}
+
+// DELETE /api/cycles - Delete cycle (owner-only)
+export async function DELETE(request: Request) {
+    try {
+        const userId = await getAuthUserId()
+        if (!userId) {
+            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+        }
+
+        const { searchParams } = new URL(request.url)
+        const id = searchParams.get('id')
+
+        if (!id) {
+            return NextResponse.json({ error: 'ID is required' }, { status: 400 })
+        }
+
+        const result = await sql`
+            DELETE FROM priority_cycles WHERE id = ${id} AND user_id = ${userId} RETURNING id
+        `
+
+        if (result.length === 0) {
+            return NextResponse.json({ error: 'Cycle not found or access denied' }, { status: 404 })
+        }
+
+        return NextResponse.json({ success: true, message: 'Cycle deleted' })
+    } catch (error: any) {
+        console.error('[DELETE /api/cycles] Error:', error)
+        return NextResponse.json(
+            { error: 'Failed to delete cycle', details: error.message },
             { status: 500 }
         )
     }

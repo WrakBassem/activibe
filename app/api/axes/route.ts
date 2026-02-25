@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import sql from '@/lib/db'
 import { getAuthUserId } from '@/lib/auth-utils'
 
-// GET /api/axes - List all axes
+// GET /api/axes - List all axes for the current user
 export async function GET() {
   try {
     const userId = await getAuthUserId()
@@ -12,6 +12,7 @@ export async function GET() {
 
     const axes = await sql`
       SELECT * FROM axes 
+      WHERE user_id = ${userId}
       ORDER BY created_at ASC
     `
 
@@ -28,7 +29,7 @@ export async function GET() {
   }
 }
 
-// POST /api/axes - Create new axis
+// POST /api/axes - Create new axis for the current user
 export async function POST(request: Request) {
   try {
     const userId = await getAuthUserId()
@@ -46,8 +47,8 @@ export async function POST(request: Request) {
     }
 
     const newAxis = await sql`
-      INSERT INTO axes (name, description, active)
-      VALUES (${body.name}, ${body.description || null}, ${body.active !== false})
+      INSERT INTO axes (name, description, active, user_id)
+      VALUES (${body.name}, ${body.description || null}, ${body.active !== false}, ${userId})
       RETURNING *
     `
 
@@ -65,7 +66,7 @@ export async function POST(request: Request) {
   }
 }
 
-// PUT /api/axes - Update axis
+// PUT /api/axes - Update axis (owner-only)
 export async function PUT(request: Request) {
     try {
       const userId = await getAuthUserId()
@@ -94,12 +95,12 @@ export async function PUT(request: Request) {
       const updatedAxis = await sql`
         UPDATE axes 
         SET ${sql(updateData)}
-        WHERE id = ${body.id}
+        WHERE id = ${body.id} AND user_id = ${userId}
         RETURNING *
       `
   
       if (updatedAxis.length === 0) {
-        return NextResponse.json({ error: 'Axis not found' }, { status: 404 })
+        return NextResponse.json({ error: 'Axis not found or access denied' }, { status: 404 })
       }
 
       return NextResponse.json({
@@ -116,9 +117,7 @@ export async function PUT(request: Request) {
     }
   }
 
-// DELETE /api/axes - Delete axis (soft delete or hard delete depending on policy, user asked for "Add/Remove" so let's do soft delete via active flag usually, but DELETE method implies removal)
-// For now, let's implement actual DELETE but warn if it has metrics? Or cascade? Schema says cascade metrics, so it's safeish but destructive.
-// Better to just support DELETE.
+// DELETE /api/axes - Delete axis (owner-only)
 export async function DELETE(request: Request) {
     try {
         const userId = await getAuthUserId()
@@ -133,7 +132,11 @@ export async function DELETE(request: Request) {
             return NextResponse.json({ error: 'ID is required' }, { status: 400 })
         }
 
-        await sql`DELETE FROM axes WHERE id = ${id}`
+        const result = await sql`DELETE FROM axes WHERE id = ${id} AND user_id = ${userId} RETURNING id`
+
+        if (result.length === 0) {
+            return NextResponse.json({ error: 'Axis not found or access denied' }, { status: 404 })
+        }
 
         return NextResponse.json({
             success: true,

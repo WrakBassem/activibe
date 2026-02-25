@@ -12,6 +12,10 @@ import { GrowthAvatar } from "./components/GrowthAvatar";
 import { HabitConstellation } from "./components/charts/HabitConstellation";
 import { QuestBoard } from "./components/QuestBoard";
 import { MorningModal } from "./components/MorningModal";
+import { StatusGauge } from "./components/charts/StatusGauge";
+import { canAccessFeature, FEATURE_LOCKS } from "@/lib/permissions";
+
+const SMOKE_BOMB_EFFECT = 'hide_negatives_24h';
 
 export default function Dashboard() {
   const [analytics, setAnalytics] = useState<any>(null);
@@ -24,18 +28,25 @@ export default function Dashboard() {
   const [levelUpData, setLevelUpData] = useState<{ level: number; newTitles: string[] } | null>(null);
   const [aiInsights, setAiInsights] = useState<any>(null);
   const [correlations, setCorrelations] = useState<any[]>([]);
+  const [activeBuffs, setActiveBuffs] = useState<any[]>([]);
+  const [activeBoss, setActiveBoss] = useState<any>(null);
+  const [smugglerActive, setSmugglerActive] = useState(false);
+  const [userRole, setUserRole] = useState<string | null>(null);
 
   useEffect(() => {
     async function fetchData() {
       try {
-        const [kpiRes, todayRes, insightRes, suggestionsRes, xpRes, aiInsightsRes, corrRes] = await Promise.all([
-             fetch("/api/analytics"),
-             fetch(`/api/daily`),
-             fetch('/api/coach/insight'),
-             fetch('/api/coach/adaptive'),
-             fetch('/api/xp'),
-             fetch('/api/reports/insights?type=daily'),
-             fetch('/api/analytics/correlations')
+        const fetchOpts = { cache: 'no-store' as RequestCache };
+        const [kpiRes, todayRes, insightRes, suggestionsRes, xpRes, aiInsightsRes, corrRes, invRes, smugglerRes] = await Promise.all([
+             fetch("/api/analytics", fetchOpts),
+             fetch(`/api/daily`, fetchOpts),
+             fetch('/api/coach/insight', fetchOpts),
+             fetch('/api/coach/adaptive', fetchOpts),
+             fetch('/api/xp', fetchOpts),
+             fetch('/api/reports/insights?type=daily', fetchOpts),
+             fetch('/api/analytics/correlations', fetchOpts),
+             fetch('/api/inventory', fetchOpts),
+             fetch('/api/shop/smuggler', fetchOpts)
         ]);
 
         const kpiData = await kpiRes.json();
@@ -45,14 +56,23 @@ export default function Dashboard() {
         const xpData = await xpRes.json();
         const aiInsightsData = await aiInsightsRes.json();
         const corrData = await corrRes.json();
+        const invData = await invRes.json();
+        const smugglerRes_Data = await smugglerRes.json();
+        const smugglerActive = smugglerRes_Data.active;
+        setSmugglerActive(smugglerActive);
 
-        if (kpiData.success) setAnalytics(kpiData.data);
+        // Fetch User Role
+        const roleRes = await fetch('/api/user/role', fetchOpts);
+        const roleData = await roleRes.json();
+        if (roleData.success) setUserRole(roleData.role);
         if (todayData.success) setTodayLog(todayData.data.summary);
         if (insightData.success) setInsight(insightData.data);
         if (suggestionsData.success) setSuggestions(suggestionsData.data);
         if (xpData.success) setXpStatus(xpData.data);
         if (aiInsightsData.success && aiInsightsData.data) setAiInsights(aiInsightsData.data);
         if (corrData.success) setCorrelations(corrData.data);
+        if (invData.success) setActiveBuffs(invData.data.activeBuffs || []);
+        if (todayData.success && todayData.data.active_boss) setActiveBoss(todayData.data.active_boss);
 
       } catch (err: any) {
         console.error("Failed to load dashboard data", err);
@@ -80,7 +100,10 @@ export default function Dashboard() {
       }
   };
 
+  const isSmokeBombActive = activeBuffs.some(b => b.effect_type === SMOKE_BOMB_EFFECT);
+
   const getScoreColor = (score: number) => {
+    if (isSmokeBombActive && score < 55) return "#94a3b8"; // Neutral blue-gray for "hidden" scores
     if (score >= 85) return "#22c55e";
     if (score >= 70) return "#84cc16";
     if (score >= 55) return "#eab308";
@@ -88,31 +111,51 @@ export default function Dashboard() {
     return "#ef4444";
   };
   
-  // Dynamic Burnout/Momentum Banner calculation
-  const getDynamicStatus = () => {
-      // Very basic logic for demo: In a real app we'd fetch burnout_flag or recent_avg
-      if (todayLog?.mode === "Burnout Risk") return { type: 'danger', icon: '🧯', msg: 'High Burnout Risk Detected' };
-      if (analytics?.global_streak >= 5) return { type: 'momentum', icon: '🔥', msg: 'Momentum Active! Keep it going.' };
-      if (todayLog?.total_score >= 80) return { type: 'success', icon: '⚡', msg: 'Peak Performance Today' };
-      return null;
-  };
-
-  const dynamicStatus = getDynamicStatus();
-  
   if (loading) return <div className="p-8 text-center text-gray-500">Loading Dashboard...</div>;
 
   return (
-    <div className="dashboard">
+    <div className={`dashboard ${xpStatus?.hardcore_mode_active ? 'hardcore-active' : ''} ${activeBoss ? 'boss-fight-active' : ''}`}>
       <MorningModal />
-      
-      {/* Dynamic Status Banner */}
-      {dynamicStatus && (
-          <div className={`status-banner ${dynamicStatus.type}`}>
-               <div className="status-glow"></div>
-               <span className="status-icon">{dynamicStatus.icon}</span>
-               <span className="status-msg">{dynamicStatus.msg}</span>
+
+      {smugglerActive && (
+          <div className="bg-gradient-to-r from-purple-900 via-indigo-900 to-purple-900 py-2 px-4 text-center border-b border-purple-500/30 flex items-center justify-center gap-4 anim-pulse-slow">
+              <span className="text-purple-300 font-black text-[10px] uppercase tracking-[0.2em]">Live Event</span>
+              <p className="text-white text-sm font-bold">The Smuggler has arrived with rare gear!</p>
+              <Link href="/shop" className="bg-white/10 hover:bg-white/20 text-white text-[10px] uppercase font-bold px-3 py-1 rounded-full border border-white/20 transition-all">
+                  Visit the Market
+              </Link>
           </div>
       )}
+
+      {activeBoss && (
+          <div className="boss-encounter-banner anim-slide-down">
+              <div className="boss-visual">
+                  <span className="boss-icon">{activeBoss.image_url || '👹'}</span>
+                  <div className="boss-aura"></div>
+              </div>
+              <div className="boss-info">
+                  <div className="boss-header">
+                      <h2 className="boss-name">{activeBoss.name}</h2>
+                      <span className="boss-lvl">ELITE ADVERSARY</span>
+                  </div>
+                  <div className="boss-health-container">
+                      <div 
+                        className="boss-health-fill" 
+                        style={{ width: `${Math.round((activeBoss.current_health / activeBoss.max_health) * 100)}%` }}
+                      ></div>
+                      <span className="boss-health-text">{activeBoss.current_health} / {activeBoss.max_health} HP</span>
+                  </div>
+                  <p className="boss-warning">Draining {activeBoss.daily_penalty_xp} XP every day until defeated! Log perfect days to strike back.</p>
+              </div>
+          </div>
+      )}
+      
+      {/* Status Gauge — premium momentum/burnout banner */}
+      <StatusGauge 
+        todayLog={todayLog} 
+        analytics={analytics} 
+        smokeBombActive={isSmokeBombActive} 
+      />
 
       {/* Header */}
       <header className="dashboard-header">
@@ -121,6 +164,26 @@ export default function Dashboard() {
           <p className="dashboard-subtitle">{new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}</p>
         </div>
         <div className="flex gap-2 items-center">
+            {xpStatus?.gold !== undefined && (
+                <div className="flex items-center bg-black/40 px-3 py-1 mr-2 rounded-full border border-yellow-500/30 tooltip-container" title="Focus Coins (Gold)">
+                    <span className="text-yellow-400 font-bold mr-1">{xpStatus.gold}</span>
+                    <span className="text-sm">🪙</span>
+                </div>
+            )}
+            {userRole === 'admin' && (
+                <Link href="/admin" className="icon-btn tooltip-container" title="Admin Panel">
+                    <span className="text-xl">🛡️</span>
+                </Link>
+            )}
+            <Link href="/shop" className="icon-btn tooltip-container relative" title="The Black Market">
+                <span className="text-xl text-yellow-500">💰</span>
+                {smugglerActive && (
+                    <span className="absolute -top-1 -right-1 w-3 h-3 bg-purple-500 rounded-full border-2 border-[#0a0a0a] animate-pulse"></span>
+                )}
+            </Link>
+            <Link href="/inventory" className="icon-btn tooltip-container" title="Inventory Bag">
+                <span className="text-xl">🎒</span>
+            </Link>
             <Link href="/focus" className="icon-btn tooltip-container" title="Deep Focus Forge">
                 <span className="text-xl">⏳</span>
             </Link>
@@ -146,12 +209,14 @@ export default function Dashboard() {
           {/* Dynamic Growth Avatar */}
           <GrowthAvatar 
               level={xpStatus.level} 
-              statusType={dynamicStatus?.type as "success" | "danger" | "momentum" | undefined} 
           />
 
           <div className="xp-content">
             <div className="xp-header">
-              <span className="xp-level-text">Level {xpStatus.level}</span>
+              <span className="xp-level-text">
+                Level {xpStatus.level} 
+                {xpStatus.hardcore_mode_active && <span className="hardcore-skull" title="Hardcore Mode Active (2x XP)"> 💀</span>}
+              </span>
               <span className="xp-ratio-text">{xpStatus.xpIntoLevel} / {xpStatus.xpNeeded} XP</span>
             </div>
             <div className="xp-bar-bg">
@@ -166,6 +231,19 @@ export default function Dashboard() {
                   <span key={t.id} title={t.description} className="xp-title-badge">
                     {t.name}
                   </span>
+                ))}
+              </div>
+            )}
+            
+            {/* Active Buffs Indicator */}
+            {activeBuffs.length > 0 && (
+              <div className="flex gap-2 mt-2 flex-wrap">
+                {activeBuffs.map(buff => (
+                   <div key={buff.buff_id} className="text-xs font-semibold py-1 px-2 rounded-full border flex items-center gap-1"
+                        style={{ borderColor: 'var(--accent-color, #fbbf24)', color: 'var(--accent-text, #fbbf24)', background: 'rgba(251, 191, 36, 0.1)' }}>
+                      <span>{buff.icon}</span>
+                      <span>{buff.name} Active</span>
+                   </div>
                 ))}
               </div>
             )}
@@ -383,42 +461,7 @@ export default function Dashboard() {
           padding: 1rem 1rem 4rem;
         }
         
-        /* Dynamic Status Banner */
-        .status-banner {
-            position: relative;
-            overflow: hidden;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 0.5rem;
-            padding: 0.5rem 1rem;
-            border-radius: 99px;
-            margin-bottom: 1.5rem;
-            font-size: 0.85rem;
-            font-weight: 600;
-            box-shadow: 0 4px 15px -3px rgba(0,0,0,0.1);
-            animation: pulse-border 2s infinite;
-        }
-        .status-banner.momentum {
-            background: linear-gradient(90deg, #ffedd5, #ffedd5);
-            color: #c2410c;
-            border: 1px solid #fdba74;
-        }
-        .status-banner.success {
-            background: linear-gradient(90deg, #dcfce7, #dcfce7);
-            color: #15803d;
-            border: 1px solid #86efac;
-        }
-        .status-banner.danger {
-            background: linear-gradient(90deg, #fee2e2, #fee2e2);
-            color: #b91c1c;
-            border: 1px solid #fca5a5;
-        }
-        @media (prefers-color-scheme: dark) {
-            .status-banner.momentum { background: linear-gradient(90deg, #431407, #431407); color: #fdba74; border-color: #7c2d12; }
-            .status-banner.success { background: linear-gradient(90deg, #052e16, #052e16); color: #86efac; border-color: #065f46; }
-            .status-banner.danger { background: linear-gradient(90deg, #450a0a, #450a0a); color: #fca5a5; border-color: #7f1d1d; }
-        }
+        /* StatusGauge is now a standalone component */
 
         .dashboard-header {
             display: flex;
@@ -498,19 +541,34 @@ export default function Dashboard() {
         @media (prefers-color-scheme: dark) { .xp-title-badge { color: #c4b5fd; border-color: rgba(139,92,246,0.3); } }
 
         .insight-banner {
-            padding: 1rem;
-            border-radius: 12px;
+            padding: 1rem 1rem 1rem 1.25rem;
+            border-radius: 14px;
             margin-bottom: 1.5rem;
             display: flex;
             align-items: flex-start;
             gap: 0.75rem;
             font-size: 0.9rem;
             line-height: 1.5;
+            position: relative;
+            border: 1px solid transparent;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
         }
-        .insight-banner.info { background: #eff6ff; color: #1e40af; border: 1px solid #dbeafe; }
-        .insight-banner.success { background: #f0fdf4; color: #166534; border: 1px solid #dcfce7; }
-        .insight-banner.warning { background: #fff7ed; color: #9a3412; border: 1px solid #ffedd5; }
-        .insight-banner.danger { background: #fef2f2; color: #991b1b; border: 1px solid #fee2e2; }
+        .insight-banner:hover { transform: translateY(-1px); }
+        .insight-banner::before {
+            content: '';
+            position: absolute;
+            left: 0; top: 0; bottom: 0;
+            width: 4px;
+            border-radius: 14px 0 0 14px;
+        }
+        .insight-banner.info { background: #eff6ff; color: #1e40af; border-color: #dbeafe; box-shadow: 0 4px 12px -2px rgba(30, 64, 175, 0.08); }
+        .insight-banner.info::before { background: #3b82f6; }
+        .insight-banner.success { background: #f0fdf4; color: #166534; border-color: #dcfce7; box-shadow: 0 4px 12px -2px rgba(22, 101, 52, 0.08); }
+        .insight-banner.success::before { background: #22c55e; }
+        .insight-banner.warning { background: #fff7ed; color: #9a3412; border-color: #ffedd5; box-shadow: 0 4px 12px -2px rgba(154, 52, 18, 0.08); }
+        .insight-banner.warning::before { background: #f97316; }
+        .insight-banner.danger { background: #fef2f2; color: #991b1b; border-color: #fee2e2; box-shadow: 0 4px 12px -2px rgba(153, 27, 27, 0.08); }
+        .insight-banner.danger::before { background: #ef4444; }
         
         @media (prefers-color-scheme: dark) {
             .insight-banner.info { background: #172554; color: #bfdbfe; border-color: #1e3a8a; }
@@ -589,26 +647,39 @@ export default function Dashboard() {
             margin-bottom: 1.5rem;
         }
         .stat-card {
-            background: white;
-            border: 1px solid #e5e7eb;
-            border-radius: 16px;
+            background: rgba(255, 255, 255, 0.8);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.6);
+            border-radius: 20px;
             padding: 1.5rem;
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.02);
+            box-shadow: 0 4px 12px -2px rgba(0, 0, 0, 0.04), inset 0 1px 0 rgba(255,255,255,1);
             position: relative;
             overflow: hidden;
-            transition: all 0.3s ease;
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .stat-card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 12px 28px -5px rgba(0, 0, 0, 0.1), inset 0 1px 0 rgba(255,255,255,1);
+            border-color: rgba(139, 92, 246, 0.2);
         }
         .stat-card.active-glow {
             border-color: rgba(34,197,94,0.3);
-            box-shadow: 0 10px 25px -5px rgba(34,197,94,0.1);
+            box-shadow: 0 10px 25px -5px rgba(34,197,94,0.15), inset 0 1px 0 rgba(255,255,255,1);
+        }
+        .stat-card.active-glow:hover {
+            box-shadow: 0 16px 40px -5px rgba(34,197,94,0.25), inset 0 1px 0 rgba(255,255,255,1);
+            border-color: rgba(34,197,94,0.5);
         }
         @media (prefers-color-scheme: dark) {
-            .stat-card { background: #1f1f1f; border-color: #333; }
-            .stat-card.active-glow { border-color: rgba(34,197,94,0.2); box-shadow: 0 10px 25px -5px rgba(34,197,94,0.05); }
+            .stat-card { background: rgba(25, 25, 25, 0.8); border-color: rgba(255,255,255,0.06); }
+            .stat-card:hover { border-color: rgba(139, 92, 246, 0.25); box-shadow: 0 12px 28px -5px rgba(0,0,0,0.3); }
+            .stat-card.active-glow { border-color: rgba(34,197,94,0.25); box-shadow: 0 10px 25px -5px rgba(34,197,94,0.1); }
+            .stat-card.active-glow:hover { border-color: rgba(34,197,94,0.4); box-shadow: 0 16px 40px -5px rgba(34,197,94,0.2); }
         }
         .stat-label {
             font-size: 0.75rem;
@@ -796,6 +867,111 @@ export default function Dashboard() {
           color: #4338ca;
         }
         @media (prefers-color-scheme: dark) { .focus-chip-area { color: #c7d2fe; } }
+        
+        /* --- HARDCORE MODE UI --- */
+        .dashboard.hardcore-active {
+            border: 2px solid rgba(239, 68, 68, 0.4);
+            border-radius: 24px;
+            padding: 1rem;
+            animation: hardcore-pulse 4s infinite ease-in-out;
+            margin: 0.5rem;
+        }
+
+        @keyframes hardcore-pulse {
+            0% { box-shadow: 0 0 20px rgba(239, 68, 68, 0.1); border-color: rgba(239, 68, 68, 0.3); }
+            50% { box-shadow: 0 0 40px rgba(239, 68, 68, 0.3); border-color: rgba(239, 68, 68, 0.6); }
+            100% { box-shadow: 0 0 20px rgba(239, 68, 68, 0.1); border-color: rgba(239, 68, 68, 0.3); }
+        }
+
+        .hardcore-skull {
+            color: #ef4444;
+            animation: flicker 2s infinite;
+            text-shadow: 0 0 8px rgba(239, 68, 68, 0.8);
+        }
+
+        @keyframes flicker {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+            75% { opacity: 0.9; }
+        }
+
+        /* --- BOSS ENCOUNTER UI --- */
+        .boss-encounter-banner {
+            margin: 1rem 1rem 2rem 1rem;
+            background: linear-gradient(135deg, #111 0%, #2a0a0a 100%);
+            border: 2px solid #ef4444;
+            border-radius: 20px;
+            padding: 1.5rem;
+            display: flex;
+            gap: 1.5rem;
+            align-items: center;
+            position: relative;
+            overflow: hidden;
+            box-shadow: 0 10px 30px rgba(239, 68, 68, 0.2);
+        }
+        .boss-fight-active {
+            background-color: #050000;
+        }
+        .boss-visual {
+            position: relative;
+            width: 80px;
+            height: 80px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+        .boss-icon {
+            font-size: 3.5rem;
+            z-index: 2;
+            filter: drop-shadow(0 0 10px #ef4444);
+            animation: boss-float 3s infinite ease-in-out;
+        }
+        @keyframes boss-float {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-10px); }
+        }
+        .boss-aura {
+            position: absolute;
+            width: 100%; height: 100%;
+            background: radial-gradient(circle, rgba(239,68,68,0.4) 0%, transparent 70%);
+            animation: aura-pulse 2s infinite alternate;
+        }
+        @keyframes aura-pulse {
+            from { transform: scale(1); opacity: 0.4; }
+            to { transform: scale(1.5); opacity: 0.2; }
+        }
+        .boss-info { flex: 1; }
+        .boss-header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 0.75rem; }
+        .boss-name { font-size: 1.25rem; font-weight: 800; color: #fecaca; text-transform: uppercase; letter-spacing: 1px; }
+        .boss-lvl { font-size: 0.7rem; font-weight: 900; color: #ef4444; background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3); padding: 2px 8px; border-radius: 4px; }
+        .boss-health-container {
+            height: 24px;
+            background: #450a0a;
+            border-radius: 6px;
+            overflow: hidden;
+            position: relative;
+            border: 1px solid rgba(239,68,68,0.4);
+            margin-bottom: 0.5rem;
+        }
+        .boss-health-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #ef4444 0%, #b91c1c 100%);
+            transition: width 1s ease-in-out;
+            box-shadow: 0 0 15px #ef4444;
+        }
+        .boss-health-text {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 0.75rem; font-weight: 900; color: white; text-shadow: 0 1px 2px black;
+        }
+        .boss-warning { font-size: 0.8rem; color: #9ca3af; font-style: italic; }
+
+        @media (max-width: 640px) {
+            .boss-encounter-banner { flex-direction: column; text-align: center; gap: 1rem; }
+            .boss-header { flex-direction: column; align-items: center; gap: 0.5rem; }
+        }
         .focus-chip-reason {
           display: block;
           font-size: 0.8rem;

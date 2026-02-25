@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { calculateCorrelation, getCorrelationStrength, calculateRegression } from "../../lib/analysis";
+import { canAccessFeature, FEATURE_LOCKS } from "@/lib/permissions";
 import "./analysis.css";
 
 interface DailyLog {
@@ -20,14 +21,29 @@ interface DailyLog {
 export default function AnalysisPage() {
   const [logs, setLogs] = useState<DailyLog[]>([]);
   const [loading, setLoading] = useState(true);
+  const [hasAccess, setHasAccess] = useState<boolean | null>(null);
+  const [currentLevel, setCurrentLevel] = useState<number>(0);
 
   useEffect(() => {
     async function fetchData() {
       try {
-        const res = await fetch("/api/logs");
-        const data = await res.json();
-        if (data.success) {
-          setLogs(data.data.reverse()); // Chronological order
+        // 1. Check Permissions first
+        const xpRes = await fetch("/api/xp", { cache: 'no-store' });
+        const xpData = await xpRes.json();
+        const hasPerms = canAccessFeature('analysis_page', xpData?.data?.attributes);
+        setHasAccess(hasPerms);
+        
+        if (xpData?.data?.attributes?.intellect) {
+            setCurrentLevel(xpData.data.attributes.intellect.level);
+        }
+
+        if (hasPerms) {
+            // 2. Load Data
+            const res = await fetch("/api/logs");
+            const data = await res.json();
+            if (data.success) {
+              setLogs(data.data.reverse()); // Chronological order
+            }
         }
       } catch (err) {
         console.error(err);
@@ -39,6 +55,32 @@ export default function AnalysisPage() {
   }, []);
 
   if (loading) return <div className="analysis-container">Loading...</div>;
+
+  // --- SKILL TREE LOCK UI ---
+  if (hasAccess === false) {
+      const req = FEATURE_LOCKS.analysis_page;
+      return (
+          <div className="analysis-container" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '60vh', textAlign: 'center' }}>
+              <div style={{ fontSize: '4rem', marginBottom: '1rem', textShadow: '0 0 30px rgba(139,92,246,0.6)' }}>🔒</div>
+              <h1 style={{ fontSize: '2rem', marginBottom: '1rem', color: '#f8fafc' }}>Feature Locked</h1>
+              <p style={{ color: '#94a3b8', maxWidth: '400px', marginBottom: '2rem', lineHeight: 1.6 }}>
+                  The Analysis Engine is advanced technology. You must reach <strong style={{color: '#c084fc'}}>Intellect Level {req.level}</strong> to unlock it.
+              </p>
+              <div style={{ background: 'rgba(255,255,255,0.05)', padding: '1rem 2rem', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.1)', marginBottom: '2rem' }}>
+                  <span style={{ color: '#e2e8f0', fontSize: '0.9rem' }}>Current Intellect: </span>
+                  <span style={{ color: '#c084fc', fontWeight: 'bold', fontSize: '1.1rem' }}>Lv {currentLevel}</span>
+              </div>
+              <Link href="/" style={{
+                  background: 'linear-gradient(135deg, #111827 0%, #374151 100%)',
+                  color: 'white', padding: '12px 24px', borderRadius: '12px', textDecoration: 'none',
+                  fontWeight: 600, border: '1px solid rgba(255,255,255,0.1)'
+              }}>
+                  ← Back to Dashboard
+              </Link>
+          </div>
+      );
+  }
+
   if (logs.length < 3) return (
     <div className="analysis-container">
       <h1>Not enough data</h1>

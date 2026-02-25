@@ -51,6 +51,7 @@ export async function GET(request: Request) {
                 FROM metrics m
                 JOIN axes a ON m.axis_id = a.id
                 WHERE m.active = TRUE AND a.active = TRUE
+                AND m.user_id = ${userId}
                 AND (
                   m.is_custom_date = FALSE 
                   OR ((NOW() AT TIME ZONE 'Africa/Tunis')::DATE >= COALESCE(m.start_date, (NOW() AT TIME ZONE 'Africa/Tunis')::DATE) 

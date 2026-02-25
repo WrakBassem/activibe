@@ -160,6 +160,7 @@ export default function SettingsPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [modalType, setModalType] = useState<"Axis" | "Metric" | "Cycle" | null>(null);
   const [editingItem, setEditingItem] = useState<any>(null);
+  const [xpStatus, setXpStatus] = useState<any>(null);
 
   // Field Modal State
   const [fieldModalOpen, setFieldModalOpen] = useState(false);
@@ -189,10 +190,13 @@ export default function SettingsPage() {
         const axesData = await axesRes.json();
         const metricsData = await metricsRes.json();
         const cyclesData = await cyclesRes.json();
+        const xpRes = await fetch("/api/xp");
+        const xpData = await xpRes.json();
 
         if (axesData.success) setAxes(axesData.data);
         if (metricsData.success) setMetrics(metricsData.data);
         if (cyclesData.success) setCycles(cyclesData.data);
+        if (xpData.success) setXpStatus(xpData.data);
       } catch (err: any) {
         setError(err.message);
       } finally {
@@ -416,6 +420,28 @@ export default function SettingsPage() {
       }
   };
 
+  const handleToggleHardcore = async (isActive: boolean) => {
+      if (isActive && !confirm("⚠️ DANGER: Hardcore Mode will double your XP, but scoring below 40 will result in a 500 XP loss and disable the mode. Are you sure?")) {
+          return;
+      }
+
+      try {
+          const res = await fetch("/api/settings/hardcore", {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ active: isActive }),
+          });
+          const data = await res.json();
+          if (data.success) {
+              fetchAll(); // Refresh status
+          } else {
+              alert(data.error);
+          }
+      } catch (err) {
+          console.error("Failed to toggle hardcore", err);
+      }
+  };
+
 
   if (loading) return <div className="p-8 text-center text-gray-500">Loading Configuration...</div>;
 
@@ -427,7 +453,7 @@ export default function SettingsPage() {
       </header>
 
       <Tabs 
-        tabs={["Axes", "Metrics", "Cycles"]} 
+        tabs={["Axes", "Metrics", "Cycles", "Gameplay"]} 
         activeTab={activeTab} 
         onTabChange={setActiveTab} 
       />
@@ -585,6 +611,49 @@ export default function SettingsPage() {
                 ))}
             </div>
           </div>
+        )}
+
+        {activeTab === "Gameplay" && (
+            <div className="tab-content">
+                <h2 className="text-lg font-semibold mb-6">Gameplay Settings</h2>
+                
+                <div className="item-card" style={{ border: '1px solid rgba(239, 68, 68, 0.2)', background: 'rgba(239, 68, 68, 0.02)' }}>
+                    <div className="item-info">
+                        <span className="item-name flex items-center gap-2">
+                            ⚔️ Hardcore Mode
+                            {xpStatus?.hardcore_mode_active && <span className="text-xs bg-red-500 text-white px-2 py-0.5 rounded-full">ACTIVE</span>}
+                        </span>
+                        <span className="item-desc">High-risk, high-reward. Multiplies all earned XP by 2, but carries heavy penalties for failure.</span>
+                    </div>
+                    
+                    <div className="flex items-center gap-4">
+                        {xpStatus?.attributes?.discipline?.level >= 5 ? (
+                            <label className="switch">
+                                <input 
+                                    type="checkbox" 
+                                    checked={xpStatus?.hardcore_mode_active} 
+                                    onChange={(e) => handleToggleHardcore(e.target.checked)}
+                                />
+                                <span className="slider round"></span>
+                            </label>
+                        ) : (
+                            <div className="flex items-center gap-2 text-gray-500 text-sm italic">
+                                <span>🔒 Locked</span>
+                                <span className="text-xs bg-gray-200 dark:bg-gray-800 px-2 py-1 rounded">Requires Discipline Lv 5</span>
+                            </div>
+                        )}
+                    </div>
+                </div>
+
+                <div className="mt-8 p-4 rounded-xl border border-yellow-500/20 bg-yellow-500/5">
+                    <h4 className="text-sm font-bold text-yellow-600 dark:text-yellow-400 mb-2">⚠️ Hardcore Rules:</h4>
+                    <ul className="text-xs space-y-2 text-gray-600 dark:text-gray-400">
+                        <li>• <strong>Double Rewards:</strong> XP from Daily Logs, Focus Forge, and Quests is multiplied by 2.</li>
+                        <li>• <strong>Failure Condition:</strong> Scoring below 40 on a daily log breaks the mode.</li>
+                        <li>• <strong>The Penalty:</strong> Upon failure, you lose <strong>500 XP</strong> and Hardcore Mode is disabled.</li>
+                    </ul>
+                </div>
+            </div>
         )}
 
         {/* --- FIELD MODAL --- */}

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
+import { BossDefeatedModal, BossReward } from '../components/BossDefeatedModal';
 
 export default function FocusForge() {
     // Timer State
@@ -14,6 +15,7 @@ export default function FocusForge() {
     const [selectedMetric, setSelectedMetric] = useState<string>('');
     const [xpRewards, setXpRewards] = useState<string[]>([]);
     const [isFinishing, setIsFinishing] = useState(false);
+    const [bossReward, setBossReward] = useState<BossReward | null>(null);
 
     // Audio State
     const [isPlayingSound, setIsPlayingSound] = useState(false);
@@ -67,8 +69,24 @@ export default function FocusForge() {
                     })
                 });
                 const json = await res.json();
-                if (json.success && json.data && json.data.messages) {
-                    setXpRewards(json.data.messages);
+                if (json.success && json.data) {
+                    let msgs = [...(json.data.messages || [])];
+                    
+                    if (json.data.boss) {
+                        const b = json.data.boss;
+                        if (b.type === 'defeat') {
+                            setBossReward({
+                                xp: b.xp,
+                                item: b.item,
+                                boss_name: b.boss_name
+                            });
+                        } else if (b.type === 'damage') {
+                            msgs.push(`💥 ${b.damage} DMG to ${b.boss_name}!`);
+                            msgs.push(`❤️ ${b.current_health} HP LEFT`);
+                        }
+                    }
+                    
+                    setXpRewards(msgs.length > 0 ? msgs : ["Focus Session Complete!"]);
                 } else {
                     setXpRewards(["Focus Session Complete!"]);
                 }
@@ -124,6 +142,7 @@ export default function FocusForge() {
 
     return (
         <div className="focus-forge-container">
+            <BossDefeatedModal reward={bossReward} onClose={() => setBossReward(null)} />
             {/* Header Navigation */}
             <nav className="p-6 flex justify-between items-center z-10 relative">
                 <Link href="/" className="text-gray-400 hover:text-white transition-colors flex items-center gap-2">

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import sql from '@/lib/db'
 import { getAuthUserId } from '@/lib/auth-utils'
+import { generateQuestIdea } from '@/lib/gemini'
 
 export async function GET(request: Request) {
   try {
@@ -58,7 +59,7 @@ export async function POST(request: Request) {
             return NextResponse.json({ success: false, message: 'Quest log is full. Complete active quests first.' }, { status: 400 })
         }
 
-        // 2. Intelligence: Find the lowest performing active metric over the last 14 days
+        // 2. Intelligence: Find the lowest performing active metric over the last 14 days FOR THIS USER ONLY
         const lowestMetrics = await sql`
             SELECT m.id, m.name, 
                    COALESCE(SUM(de.score_awarded), 0) as total_recent_score
@@ -66,7 +67,7 @@ export async function POST(request: Request) {
             LEFT JOIN daily_entries de ON m.id = de.metric_id 
                   AND de.user_id = ${userId} 
                   AND de.date >= CURRENT_DATE - INTERVAL '14 days'
-            WHERE m.active = TRUE
+            WHERE m.active = TRUE AND m.user_id = ${userId}
             GROUP BY m.id, m.name
             ORDER BY total_recent_score ASC
             LIMIT 1
@@ -86,8 +87,11 @@ export async function POST(request: Request) {
         // Expiration: 1 day per target value + 1 buffer day
         const daysToComplete = targetValue + 1;
 
-        const title = `The ${targetMetric.name} Recovery Protocol`;
-        const description = `The AI has detected a drop in your ${targetMetric.name} consistency. Restore balance by completing this habit ${targetValue} times before the deadline.`;
+        // Try AI generation first
+        const aiQuest = await generateQuestIdea(targetMetric.name, targetValue);
+        
+        const title = aiQuest?.title || `The ${targetMetric.name} Recovery Protocol`;
+        const description = aiQuest?.description || `The AI has detected a drop in your ${targetMetric.name} consistency. Restore balance by completing this habit ${targetValue} times before the deadline.`;
 
         // 4. Insert into database
         const newQuest = await sql`

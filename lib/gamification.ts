@@ -72,15 +72,23 @@ export async function awardXP(
   amount: number
 ): Promise<{ xp: number; level: number; leveledUp: boolean; newTitles: string[] }> {
   // 1. Get current XP/level
-  const users = await sql`SELECT xp, level, titles FROM users WHERE id = ${userId}`
+  const users = await sql`SELECT xp, level, titles, hardcore_mode_active FROM users WHERE id = ${userId}`
   if (users.length === 0) throw new Error(`User ${userId} not found`)
   
   const user = users[0]
+  
+  // Double XP if Hardcore Mode is active
+  let finalAmount = amount
+  if (user.hardcore_mode_active && amount > 0) {
+    finalAmount = amount * 2
+    reason = `${reason}:hardcore_bonus`
+  }
+
   const currentXP: number = user.xp || 0
   const currentLevel: number = user.level || 1
   const currentTitles: string[] = user.titles || []
 
-  const newXP = currentXP + amount
+  const newXP = Math.max(0, currentXP + finalAmount)
   const newLevel = getLevelFromXP(newXP)
   const leveledUp = newLevel > currentLevel
 
@@ -102,10 +110,79 @@ export async function awardXP(
   // 4. Log XP
   await sql`
     INSERT INTO user_xp_log (user_id, xp_gained, reason) 
-    VALUES (${userId}, ${amount}, ${reason})
+    VALUES (${userId}, ${finalAmount}, ${reason})
   `
 
   return { xp: newXP, level: newLevel, leveledUp, newTitles: earnedTitles }
+}
+
+// --- DEDUCT XP (for penalties) ---
+export async function deductXP(
+  userId: string,
+  reason: string,
+  amount: number
+): Promise<{ xp: number; level: number }> {
+    const users = await sql`SELECT xp, level FROM users WHERE id = ${userId}`
+    if (users.length === 0) throw new Error(`User ${userId} not found`)
+    
+    const currentXP = users[0].xp || 0
+    const newXP = Math.max(0, currentXP - amount)
+    const newLevel = getLevelFromXP(newXP)
+
+    await sql`
+        UPDATE users 
+        SET xp = ${newXP}, level = ${newLevel}
+        WHERE id = ${userId}
+    `
+
+    await sql`
+        INSERT INTO user_xp_log (user_id, xp_gained, reason) 
+        VALUES (${userId}, ${-amount}, ${reason})
+    `
+
+    return { xp: newXP, level: newLevel }
+}
+
+// --- AWARD GOLD ---
+export async function awardGold(
+  userId: string,
+  amount: number
+): Promise<{ gold: number }> {
+    const users = await sql`SELECT gold FROM users WHERE id = ${userId}`
+    if (users.length === 0) throw new Error(`User ${userId} not found`)
+    
+    const currentGold = users[0].gold || 0
+    const newGold = currentGold + amount
+
+    await sql`
+        UPDATE users 
+        SET gold = ${newGold}
+        WHERE id = ${userId}
+    `
+
+    return { gold: newGold }
+}
+
+// --- DEDUCT GOLD ---
+export async function deductGold(
+  userId: string,
+  amount: number
+): Promise<{ gold: number }> {
+    const users = await sql`SELECT gold FROM users WHERE id = ${userId}`
+    if (users.length === 0) throw new Error(`User ${userId} not found`)
+    
+    const currentGold = users[0].gold || 0
+    if (currentGold < amount) throw new Error('Insufficient Gold')
+
+    const newGold = currentGold - amount
+
+    await sql`
+        UPDATE users 
+        SET gold = ${newGold}
+        WHERE id = ${userId}
+    `
+
+    return { gold: newGold }
 }
 
 async function getUserStats(userId: string, currentLevel: number): Promise<UserStats> {
@@ -125,13 +202,14 @@ async function getUserStats(userId: string, currentLevel: number): Promise<UserS
 
 // --- GET USER XP STATUS (for dashboard) ---
 export async function getUserXPStatus(userId: string) {
-  const users = await sql`SELECT xp, level, titles FROM users WHERE id = ${userId}`
+  const users = await sql`SELECT xp, level, titles, hardcore_mode_active, hardcore_start_date, gold FROM users WHERE id = ${userId}`
   if (users.length === 0) return null
 
   const user = users[0]
   const xp: number = user.xp || 0
   const level: number = user.level || 1
   const titles: string[] = user.titles || []
+  const gold: number = user.gold || 0
 
   const currentThreshold = getLevelThreshold(level)
   const nextThreshold = getLevelThreshold(level + 1)
@@ -141,6 +219,21 @@ export async function getUserXPStatus(userId: string) {
 
   const unlockedTitles = TITLES.filter(t => titles.includes(t.id))
 
+  // Fetch Attributes levels
+  const userAttributes = await sql`
+      SELECT attribute_name, total_xp, level 
+      FROM user_attributes 
+      WHERE user_id = ${userId}
+  `
+  
+  const attributesMap: Record<string, { xp: number; level: number }> = {}
+  userAttributes.forEach(attr => {
+      attributesMap[attr.attribute_name] = {
+          xp: attr.total_xp,
+          level: attr.level
+      }
+  })
+
   return {
     xp,
     level,
@@ -148,5 +241,9 @@ export async function getUserXPStatus(userId: string) {
     xpIntoLevel,
     xpNeeded,
     titles: unlockedTitles,
+    attributes: attributesMap,
+    hardcore_mode_active: user.hardcore_mode_active,
+    hardcore_start_date: user.hardcore_start_date,
+    gold
   }
 }

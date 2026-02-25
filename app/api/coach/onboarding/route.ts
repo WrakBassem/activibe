@@ -1,17 +1,22 @@
 import { NextResponse } from 'next/server'
+import { getAuthUserId } from '@/lib/auth-utils'
 import { generateOnboardingQuestions, generateGoalSuggestions } from '@/lib/gemini'
 
 // POST /api/coach/onboarding — AI-powered onboarding actions
 export async function POST(request: Request) {
   try {
+    // Auth guard — only logged-in users can access onboarding AI
+    const userId = await getAuthUserId()
+    if (!userId) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
     const body = await request.json()
     const { action, profile } = body
 
     if (action === 'generate_questions') {
-      // Generate smart follow-up questions based on profile data
       const rawResponse = await generateOnboardingQuestions(profile)
       
-      // Parse the JSON response (handle markdown code blocks)
       let questions
       try {
         const cleaned = rawResponse.replace(/```json\s*/g, '').replace(/```/g, '').trim()
@@ -29,7 +34,6 @@ export async function POST(request: Request) {
     }
 
     if (action === 'generate_goals') {
-      // Generate goal suggestions based on complete profile
       const rawResponse = await generateGoalSuggestions(profile)
 
       let goals

@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import sql from '@/lib/db'
 import { getAuthUserId } from '@/lib/auth-utils'
 
-// GET /api/metrics - List all metrics with axis info
+// GET /api/metrics - List all metrics for the current user
 export async function GET() {
   try {
     const userId = await getAuthUserId()
@@ -10,13 +10,13 @@ export async function GET() {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    // Fetch metrics joined with axes
     const metrics = await sql`
       SELECT 
         m.*,
         a.name as axis_name
       FROM metrics m
       JOIN axes a ON m.axis_id = a.id
+      WHERE m.user_id = ${userId}
       ORDER BY a.name, m.name
     `
 
@@ -33,7 +33,7 @@ export async function GET() {
   }
 }
 
-// POST /api/metrics - Create new metric
+// POST /api/metrics - Create new metric for the current user
 export async function POST(request: Request) {
   try {
     const userId = await getAuthUserId()
@@ -43,12 +43,19 @@ export async function POST(request: Request) {
 
     const body = await request.json()
     
-    // Validation
     if (!body.name || !body.axis_id || !body.max_points) {
       return NextResponse.json(
         { error: 'Name, Axis ID, and Max Points are required' },
         { status: 400 }
       )
+    }
+
+    // Verify the axis belongs to this user
+    const axisCheck = await sql`
+      SELECT id FROM axes WHERE id = ${body.axis_id} AND user_id = ${userId}
+    `
+    if (axisCheck.length === 0) {
+      return NextResponse.json({ error: 'Axis not found or access denied' }, { status: 403 })
     }
 
     const newMetric = await sql`
@@ -64,7 +71,8 @@ export async function POST(request: Request) {
         end_date,
         duration,
         hour,
-        is_custom_date
+        is_custom_date,
+        user_id
       )
       VALUES (
         ${body.axis_id}, 
@@ -78,7 +86,8 @@ export async function POST(request: Request) {
         ${body.end_date || null},
         ${body.duration || null},
         ${body.hour || null},
-        ${body.is_custom_date || false}
+        ${body.is_custom_date || false},
+        ${userId}
       )
       RETURNING *
     `
@@ -97,7 +106,7 @@ export async function POST(request: Request) {
   }
 }
 
-// PUT /api/metrics - Update metric
+// PUT /api/metrics - Update metric (owner-only)
 export async function PUT(request: Request) {
     try {
         const userId = await getAuthUserId()
@@ -132,12 +141,12 @@ export async function PUT(request: Request) {
         const updatedMetric = await sql`
             UPDATE metrics
             SET ${sql(updateData)}
-            WHERE id = ${body.id}
+            WHERE id = ${body.id} AND user_id = ${userId}
             RETURNING *
         `
         
         if (updatedMetric.length === 0) {
-            return NextResponse.json({ error: 'Metric not found' }, { status: 404 })
+            return NextResponse.json({ error: 'Metric not found or access denied' }, { status: 404 })
         }
 
         return NextResponse.json({

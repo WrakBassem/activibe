@@ -2,8 +2,9 @@ import { NextResponse } from 'next/server'
 import sql from '@/lib/db'
 import { getAuthUserId } from '@/lib/auth-utils'
 import { format } from 'date-fns'
-import { awardXP, XP_PER_LOG, XP_PER_PERFECT_SCORE } from '@/lib/gamification'
+import { awardXP, deductXP, XP_PER_LOG, XP_PER_PERFECT_SCORE, awardGold } from '@/lib/gamification'
 import { checkAndUnlockAchievements } from '@/lib/achievements'
+import { getActiveBoss, dealBossDamage, checkBossSpawn, processDailyBossPenalty } from '@/lib/bosses'
 
 export const dynamic = 'force-dynamic';
 
@@ -41,12 +42,26 @@ export async function GET(request: Request) {
         WHERE dfe.user_id = ${userId} AND dfe.date = ${date}
     `
 
+    // 4. Boss Info & Penalty Processing
+    // Only process penalty if fetching for TODAY (or later) to avoid re-triggering on old logs
+    let activeBoss = null
+    const todayStr = getToday()
+    
+    if (date >= todayStr) {
+        // This fires the once-per-day penalty check
+        await processDailyBossPenalty(userId)
+    }
+    
+    // Always fetch active boss info if it exists
+    activeBoss = await getActiveBoss(userId)
+
     return NextResponse.json({
       success: true,
       data: {
           summary: summary[0] || null,
           entries: entries,
           field_values: fieldValues,
+          active_boss: activeBoss
       }
     })
   } catch (error: any) {
@@ -68,8 +83,9 @@ export async function POST(request: Request) {
 
     const body = await request.json()
     const logDate = body.date || getToday()
-    const { metric_inputs, field_values } = body // field_values: [{ field_id, metric_id, value_int?, value_bool?, value_text? }]
+    const { metric_inputs, field_values } = body
     
+    let bossFeedback: any = null
     console.log(`[POST /api/daily] Received ${metric_inputs?.length} inputs for ${logDate}`);
     if (metric_inputs?.length > 0) {
         console.log('Sample input:', JSON.stringify(metric_inputs[0]));
@@ -82,18 +98,33 @@ export async function POST(request: Request) {
     }
 
     // --- SCORING ENGINE ---
+    // Check for Retroactive Submission (Time Turner)
+    const todayStr = getToday();
+    if (logDate < todayStr) {
+        const pastBuffs = await sql`
+            SELECT ab.id as buff_id
+            FROM active_buffs ab
+            JOIN items i ON ab.item_id = i.id
+            WHERE ab.user_id = ${userId} AND i.effect_type = 'edit_past_log' AND ab.expires_at > CURRENT_TIMESTAMP
+            LIMIT 1
+        `;
 
-    // 1. Fetch Active Cycle & Weights
+        if (pastBuffs.length === 0) {
+            return NextResponse.json({ error: 'You cannot submit logs for past dates without an active Time Turner buff.' }, { status: 403 });
+        }
+
+        // Consume the buff (delete it)
+        await sql`DELETE FROM active_buffs WHERE id = ${pastBuffs[0].buff_id}`;
+    }
+
+    // 1. Fetch Active Cycle & Weights for this user
     // Find cycle that covers logDate
     const cycles = await sql`
         SELECT id FROM priority_cycles
         WHERE start_date <= ${logDate} AND end_date >= ${logDate}
+        AND user_id = ${userId}
         LIMIT 1
     `
-    // If no cycle found, we might need a default or error. 
-    // For now, let's assume if no cycle, we behave neutrally or error. 
-    // Or we find the *latest* active cycle if dates overlap strangely.
-    // Let's grab the weights for this cycle.
     
     let activeWeights: any[] = [];
     if (cycles.length > 0) {
@@ -103,24 +134,25 @@ export async function POST(request: Request) {
             WHERE cycle_id = ${cycles[0].id}
         `
     } else {
-         // Fallback: If no active cycle, maybe equal weights? Or fetch all axes and give them equal weight?
-         // For now, let's warn and return 0 score or handle gracefully.
-         // Let's fetch all (active) axes to compute "Raw Score" at least.
+         // Fallback: If no active cycle, give all active axes equal weight
+         const activeAxesUser = await sql`SELECT id FROM axes WHERE active = TRUE AND user_id = ${userId}`;
+         const equalWeight = activeAxesUser.length > 0 ? 100 / activeAxesUser.length : 0;
+         activeWeights = activeAxesUser.map(a => ({ axis_id: a.id, weight_percentage: equalWeight }));
     }
 
-    // 2. Fetch All Active Metrics
+    // 2. Fetch All Active Metrics scoped to this user
     const metrics = await sql`
         SELECT id, axis_id, max_points, input_type 
         FROM metrics 
-        WHERE active = TRUE
+        WHERE active = TRUE AND user_id = ${userId}
     `
     const metricsMap = new Map(metrics.map(m => [m.id, m]));
 
     // 3. Calculate Scores per Axis
     const axisScores: Record<string, { raw: number, max: number, weight: number }> = {};
     
-    // Initialize axis aggregators
-    const allAxes = await sql`SELECT id FROM axes WHERE active = TRUE`;
+    // Initialize axis aggregators for this user's axes
+    const allAxes = await sql`SELECT id FROM axes WHERE active = TRUE AND user_id = ${userId}`;
     for (const axis of allAxes) {
         const w = activeWeights.find(aw => aw.axis_id === axis.id)?.weight_percentage || 0;
         axisScores[axis.id] = { raw: 0, max: 0, weight: w };
@@ -347,6 +379,8 @@ export async function POST(request: Request) {
     // 8. Award Base XP and Attribute XP (only on FIRST submission for this date)
     let xpResult = null
     let questXpResult = null
+    let lootDrop = null // Variable to store awarded item
+
     try {
       const existingXP = await sql`
         SELECT id FROM user_xp_log 
@@ -354,15 +388,79 @@ export async function POST(request: Request) {
           AND reason LIKE ${'daily_log:' + logDate + '%'}
         LIMIT 1
       `
+      
+      // --- HARDCORE MODE CHECK ---
+      const userStatus = await sql`SELECT hardcore_mode_active FROM users WHERE id = ${userId}`
+      const isHardcore = userStatus[0]?.hardcore_mode_active || false
+
+      // Penalty check (< 40 score)
+      let effectiveHardcore = isHardcore
+      if (isHardcore && finalScore < 40) {
+          await sql`UPDATE users SET hardcore_mode_active = FALSE WHERE id = ${userId}`
+          await deductXP(userId, `hardcore_death:${logDate}:low_score`, 500)
+          effectiveHardcore = false // Disable multipliers for this log's processing
+      }
+
+      // --- BOSS LOGIC ---
+      try {
+          // 1. Check for damage
+          if (finalScore >= 80) {
+              const damage = finalScore === 100 ? 100 : 50
+              const result = await dealBossDamage(userId, damage)
+              if (result.defeated) {
+                  bossFeedback = { type: 'defeat', ...result.reward }
+              } else {
+                  // If we didn't defeat it, just get info to show remaining health
+                  const active = await getActiveBoss(userId)
+                  if (active) {
+                      bossFeedback = { type: 'damage', damage, current_health: active.current_health, boss_name: active.name }
+                  }
+              }
+          }
+
+          // 2. Check for spawn if no boss is active
+          if (!bossFeedback) {
+              const spawned = await checkBossSpawn(userId)
+              if (spawned) {
+                  bossFeedback = { type: 'spawn', boss_name: spawned.name, current_health: spawned.current_health }
+              }
+          }
+      } catch (bossErr) {
+          console.warn('[POST /api/daily] Boss logic failed:', bossErr)
+      }
 
       if (existingXP.length === 0) {
         let xpToAward = XP_PER_LOG
         let xpReason = `daily_log:${logDate}`
+        
         if (finalScore === 100) {
           xpToAward += XP_PER_PERFECT_SCORE
           xpReason = `daily_log:${logDate}:perfect`
+          
+          // --- LOOT DROP LOGIC ---
+          const itemsResult = await sql`SELECT * FROM items`
+          if (itemsResult.length > 0) {
+              // Simple RNG: Random item from the registry
+              const randomIndex = Math.floor(Math.random() * itemsResult.length)
+              const wonItem = itemsResult[randomIndex]
+              
+              await sql`
+                  INSERT INTO user_inventory (user_id, item_id, quantity)
+                  VALUES (${userId}, ${wonItem.id}, 1)
+                  ON CONFLICT (user_id, item_id)
+                  DO UPDATE SET quantity = user_inventory.quantity + 1, last_acquired_at = CURRENT_TIMESTAMP
+              `
+              
+              lootDrop = wonItem
+          }
         }
+        
         xpResult = await awardXP(userId, xpReason, xpToAward)
+
+        // Award Base Gold (50 for log, +50 for perfect)
+        let goldToAward = 50
+        if (finalScore === 100) goldToAward += 50
+        await awardGold(userId, goldToAward)
 
         // 8b. Award Attribute Specific XP
         const completedMetrics = processedEntries.filter(e => e.completed)
@@ -385,7 +483,11 @@ export async function POST(request: Request) {
                 const attr = attributeMap[entry.metric_id]
                 if (attr) {
                     // Give 10 XP per minute spent, or default 25 XP if no time logged
-                    const timeXP = (entry.time_spent && entry.time_spent > 0) ? entry.time_spent * 10 : 25
+                    let timeXP = (entry.time_spent && entry.time_spent > 0) ? entry.time_spent * 10 : 25
+                    
+                    // Double if Hardcore Mode was active and remains active (didn't fail today)
+                    if (effectiveHardcore) timeXP *= 2
+                    
                     xpPerAttribute[attr] = (xpPerAttribute[attr] || 0) + timeXP
                 }
             })
@@ -467,7 +569,9 @@ export async function POST(request: Request) {
           total_time: totalTimeSpent,
           xp: xpResult,
           quest_xp: questXpResult,
-          achievements: newlyUnlockedAchievements
+          achievements: newlyUnlockedAchievements,
+          loot_drop: lootDrop,
+          boss: bossFeedback
       }
     }, { status: 201 })
 

@@ -4,6 +4,8 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { format } from "date-fns";
+import { LootDropModal, LootItem } from "../components/LootDropModal";
+import { BossDefeatedModal, BossReward } from "../components/BossDefeatedModal";
 
 // --- Types ---
 type Metric = {
@@ -82,6 +84,8 @@ export default function DailyLogPage() {
   const [journalText, setJournalText] = useState("");
   const [parsing, setParsing] = useState(false);
   const [autoFillFeedback, setAutoFillFeedback] = useState<string[]>([]);
+  const [lootDrop, setLootDrop] = useState<LootItem | null>(null);
+  const [bossReward, setBossReward] = useState<BossReward | null>(null);
 
   // Fetch Metrics & Existing Log
   useEffect(() => {
@@ -243,6 +247,25 @@ export default function DailyLogPage() {
           if (data.success) {
               setSummary(data.data.summary);
               setMessage(data.data.xp ? `✨ +${data.data.xp.xp - (data.data.xp.xp - 10)} XP! Log saved!` : 'Log saved successfully!');
+              
+              if (data.data.loot_drop) {
+                  setLootDrop(data.data.loot_drop); // Set the loot drop item
+              }
+              
+              if (data.data.boss) {
+                  const b = data.data.boss;
+                  if (b.type === 'defeat') {
+                      setBossReward({
+                          xp: b.xp,
+                          item: b.item,
+                          boss_name: b.boss_name
+                      });
+                  } else if (b.type === 'damage') {
+                      setMessage(prev => (prev ? prev + ' ' : '') + `💥 Dealt ${b.damage} DMG to ${b.boss_name}! (${b.current_health} HP left)`);
+                  } else if (b.type === 'spawn') {
+                      setMessage(prev => (prev ? prev + ' ' : '') + `👹 WARNING: ${b.boss_name} HAS SPAWNED!`);
+                  }
+              }
               setTimeout(() => setMessage(null), 3000);
           } else {
               alert("Error saving log");
@@ -366,6 +389,9 @@ export default function DailyLogPage() {
 
   return (
     <div className="daily-container">
+      <LootDropModal item={lootDrop} onClose={() => setLootDrop(null)} />
+      <BossDefeatedModal reward={bossReward} onClose={() => setBossReward(null)} />
+      
       <header className="daily-header">
         <Link href="/" className="back-link">← Dashboard</Link>
         <div className="date-picker">

@@ -705,3 +705,38 @@ ${rawAnalysis.substring(0, 4000)}`
     return fallback
   }
 }
+
+export interface DynamicQuest {
+  title: string;
+  description: string;
+}
+
+export async function generateQuestIdea(metricName: string, targetValue: number): Promise<DynamicQuest | null> {
+  if (!genAI) return null;
+  try {
+    const model = genAI.getGenerativeModel({ 
+      model: 'gemini-2.5-flash', 
+      generationConfig: { responseMimeType: 'application/json' } 
+    });
+    
+    const prompt = `You are the AI Oracle of an RPG life-tracking app. The user's consistency has slipped on the habit: "${metricName}".
+We are issuing them a quest to complete this habit exactly ${targetValue} times before the deadline.
+
+Generate a highly specific, motivating, and gamified quest title and description tailored specifically to "${metricName}".
+- The title should sound like a cool RPG quest (max 6 words).
+- The description should briefly acknowledge the recent dip, explain why this habit matters, and challenge them to hit the target ${targetValue} times to restore balance. Keep it under 3 sentences.
+
+Output exactly this JSON structure:
+{
+  "title": "String",
+  "description": "String"
+}`;
+
+    const result = await model.generateContent(prompt);
+    const text = result.response.text().trim();
+    return JSON.parse(text) as DynamicQuest;
+  } catch (error) {
+    console.error('[Gemini] Quest generation error:', error);
+    return null;
+  }
+}
