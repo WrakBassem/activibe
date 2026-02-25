@@ -20,13 +20,31 @@ export function NotificationPrompt() {
 
       if (Notification.permission === "default") {
         setShowPrompt(true);
+      } else if (Notification.permission === "granted") {
+        // If they already granted permission in the past, silently refresh the subscription
+        // to ensure the backend database always has their most recent endpoint.
+        navigator.serviceWorker.ready.then(async (registration) => {
+          try {
+             const sub = await registration.pushManager.getSubscription();
+             if (sub) {
+               await fetch("/api/notifications/subscribe", {
+                 method: "POST",
+                 headers: { "Content-Type": "application/json" },
+                 body: JSON.stringify(sub)
+               });
+             }
+          } catch (e) { console.error('Silent sync failed', e); }
+        });
       }
     }
   }, []);
 
   const urlBase64ToUint8Array = (base64String: string) => {
-    const padding = "=".repeat((4 - base64String.length % 4) % 4);
-    const base64 = (base64String + padding).replace(/\-/g, "+").replace(/_/g, "/");
+    // Aggressively strip any accidental quotes, spaces, newlines, or hidden characters
+    const safeString = (base64String || '').replace(/[^a-zA-Z0-9\-_]/g, '');
+    const padding = "=".repeat((4 - safeString.length % 4) % 4);
+    const base64 = (safeString + padding).replace(/\-/g, "+").replace(/_/g, "/");
+    
     const rawData = window.atob(base64);
     const outputArray = new Uint8Array(rawData.length);
     for (let i = 0; i < rawData.length; ++i) {
@@ -47,10 +65,18 @@ export function NotificationPrompt() {
         // Get service worker registration
         const registration = await navigator.serviceWorker.ready;
         
+        const applicationServerKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+        console.log("VAPID Key read by browser:", typeof applicationServerKey, applicationServerKey);
+        
+        if (!applicationServerKey || applicationServerKey === 'undefined' || applicationServerKey === 'null' || applicationServerKey.length < 20) {
+          alert("VAPID Key is missing! Please restart your dev server with 'npm run dev' to load .env variables.");
+          throw new Error("VAPID public key is missing or corrupted from environment variables.");
+        }
+
         // Subscribe
         const subscription = await registration.pushManager.subscribe({
           userVisibleOnly: true,
-          applicationServerKey: urlBase64ToUint8Array(process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY as string),
+          applicationServerKey: urlBase64ToUint8Array(applicationServerKey),
         });
 
         // Send to backend

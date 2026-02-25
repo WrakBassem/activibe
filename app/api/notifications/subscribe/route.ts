@@ -17,6 +17,7 @@ export async function POST(request: Request) {
     }
 
     // Insert or update subscription
+    console.log('[POST /api/notifications/subscribe] Inserting into DB for user', userId);
     await sql`
       INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth)
       VALUES (
@@ -29,9 +30,10 @@ export async function POST(request: Request) {
       DO UPDATE SET last_used_at = CURRENT_TIMESTAMP
     `;
 
+    console.log('[POST /api/notifications/subscribe] Successfully saved subscription');
     return NextResponse.json({ success: true, message: 'Subscription saved' });
   } catch (error: any) {
-    console.error('[POST /api/notifications/subscribe]', error);
+    console.error('[POST /api/notifications/subscribe] ERROR:', error);
     return NextResponse.json({ error: 'Failed to subscribe' }, { status: 500 });
   }
 }

@@ -217,7 +217,7 @@ export default function Dashboard() {
             {userRole === 'admin' && (
                 <button 
                   onClick={async () => {
-                    const res = await fetch('/api/notifications/test', { method: 'POST' });
+                    const res = await fetch(`${window.location.origin}/api/notifications/test`, { method: 'POST' });
                     const data = await res.json();
                     alert(data.message || data.error);
                   }}
