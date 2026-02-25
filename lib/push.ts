@@ -2,8 +2,8 @@ import webpush from 'web-push';
 import sql from '@/lib/db';
 
 const vapidKeys = {
-  publicKey: process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || '',
-  privateKey: process.env.NEXT_PRIVATE_VAPID_PRIVATE_KEY || '',
+  publicKey: (process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || '').trim(),
+  privateKey: (process.env.NEXT_PRIVATE_VAPID_PRIVATE_KEY || '').trim(),
 };
 
 if (vapidKeys.publicKey && vapidKeys.privateKey) {
